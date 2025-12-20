@@ -1,0 +1,18 @@
+{
+  "short_name": "GirviGold",
+  "name": "GirviGold Digital Ledger",
+  "description": "Secure local-first ledger for Pawn Brokers and Jewelers.",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2696/2696191.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#EAB308",
+  "background_color": "#f8fafc",
+  "orientation": "portrait"
+}
