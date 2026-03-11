@@ -14,10 +14,29 @@ export interface LoanEntry {
   description: string;
   weight: number;
   netWeight: number;
+  goldWeight?: number;
+  goldNetWeight?: number;
+  silverWeight?: number;
+  silverNetWeight?: number;
   remark: string;
   amount: number;
   interestRate: number;
   status: 'Active' | 'Closed';
+  isDeleted?: boolean;
+}
+
+export interface BackupConfig {
+  frequency: 'Daily' | 'Weekly' | 'Manual';
+  lastBackup?: string;
+  enabled: boolean;
+}
+
+export interface BackupEntry {
+  id: string;
+  timestamp: string;
+  type: 'Daily' | 'Weekly' | 'Manual';
+  recordCount: number;
+  data: LoanEntry[];
 }
 
 export interface Statistics {

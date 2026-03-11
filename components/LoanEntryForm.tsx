@@ -22,6 +22,10 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
     description: '',
     weight: '' as string | number,
     netWeight: '' as string | number,
+    goldWeight: '' as string | number,
+    goldNetWeight: '' as string | number,
+    silverWeight: '' as string | number,
+    silverNetWeight: '' as string | number,
     remark: '',
     amount: '' as string | number,
     interestRate: '' as string | number,
@@ -41,6 +45,10 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
         description: editingLoan.description,
         weight: editingLoan.weight,
         netWeight: editingLoan.netWeight,
+        goldWeight: editingLoan.goldWeight || '',
+        goldNetWeight: editingLoan.goldNetWeight || '',
+        silverWeight: editingLoan.silverWeight || '',
+        silverNetWeight: editingLoan.silverNetWeight || '',
         remark: editingLoan.remark,
         amount: editingLoan.amount,
         interestRate: editingLoan.interestRate,
@@ -70,6 +78,10 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
       serialNumber: Number(formData.serialNumber),
       weight: Number(formData.weight),
       netWeight: Number(formData.netWeight),
+      goldWeight: formData.metalType === 'Both' ? Number(formData.goldWeight) : undefined,
+      goldNetWeight: formData.metalType === 'Both' ? Number(formData.goldNetWeight) : undefined,
+      silverWeight: formData.metalType === 'Both' ? Number(formData.silverWeight) : undefined,
+      silverNetWeight: formData.metalType === 'Both' ? Number(formData.silverNetWeight) : undefined,
       amount: Number(formData.amount),
       interestRate: Number(formData.interestRate),
       status: formData.status
@@ -140,14 +152,45 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
                 </div>
              </div>
              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <label className={labelClass}>Gross (g)</label>
-                  <input type="number" step="0.001" className={inputClass} value={formData.weight} onChange={e => setFormData({...formData, weight: e.target.value})} required />
-                </div>
-                <div>
-                  <label className={labelClass}>Net (g)</label>
-                  <input type="number" step="0.001" className={inputClass} value={formData.netWeight} onChange={e => setFormData({...formData, netWeight: e.target.value})} required />
-                </div>
+                {formData.metalType !== 'Both' ? (
+                  <>
+                    <div>
+                      <label className={labelClass}>Gross (g)</label>
+                      <input type="number" step="0.001" className={inputClass} value={formData.weight} onChange={e => setFormData({...formData, weight: e.target.value})} required />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Net (g)</label>
+                      <input type="number" step="0.001" className={inputClass} value={formData.netWeight} onChange={e => setFormData({...formData, netWeight: e.target.value})} required />
+                    </div>
+                  </>
+                ) : (
+                  <div className="col-span-2 md:col-span-4 grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <div className="col-span-2 md:col-span-4 flex items-center gap-2 mb-1">
+                      <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Gold Details</span>
+                    </div>
+                    <div>
+                      <label className={labelClass}>Gold Gross (g)</label>
+                      <input type="number" step="0.001" className={inputClass} value={formData.goldWeight} onChange={e => setFormData({...formData, goldWeight: e.target.value})} required />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Gold Net (g)</label>
+                      <input type="number" step="0.001" className={inputClass} value={formData.goldNetWeight} onChange={e => setFormData({...formData, goldNetWeight: e.target.value})} required />
+                    </div>
+                    <div className="col-span-2 md:col-span-4 flex items-center gap-2 mb-1 mt-2">
+                      <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Silver Details</span>
+                    </div>
+                    <div>
+                      <label className={labelClass}>Silver Gross (g)</label>
+                      <input type="number" step="0.001" className={inputClass} value={formData.silverWeight} onChange={e => setFormData({...formData, silverWeight: e.target.value})} required />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Silver Net (g)</label>
+                      <input type="number" step="0.001" className={inputClass} value={formData.silverNetWeight} onChange={e => setFormData({...formData, silverNetWeight: e.target.value})} required />
+                    </div>
+                  </div>
+                )}
                 <div>
                   <label className={labelClass}>Principal</label>
                   <input type="number" className={`${inputClass} font-bold text-lg`} value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} required />

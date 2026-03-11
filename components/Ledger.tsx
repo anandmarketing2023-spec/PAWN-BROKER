@@ -8,9 +8,10 @@ interface LedgerProps {
   onDelete: (id: string) => void;
   onEdit: (loan: LoanEntry) => void;
   onUpdateStatus: (id: string) => void;
+  onAdjustDate: (loan: LoanEntry) => void;
 }
 
-const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus }) => {
+const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus, onAdjustDate }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
   const filteredLoans = useMemo(() => {
@@ -72,7 +73,15 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
             <div className="flex justify-between items-start mb-3">
               <div className="flex items-center space-x-2">
                 <span className="font-mono text-xs font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded">#{String(loan.serialNumber).padStart(4, '0')}</span>
-                {loan.status === 'Closed' && <span className="text-[9px] font-black text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100">PAID</span>}
+                {loan.status === 'Closed' && (
+                  <button 
+                    onClick={() => onAdjustDate(loan)}
+                    className="flex flex-col items-center hover:bg-red-50 p-1 rounded transition-colors"
+                  >
+                    <span className="text-[9px] font-black text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100">PAID</span>
+                    {loan.closeDate && <span className="text-[8px] text-slate-400 font-bold text-center mt-0.5 underline decoration-dotted">{new Date(loan.closeDate).toLocaleDateString()}</span>}
+                  </button>
+                )}
               </div>
               <div className="flex items-center space-x-2">
                 <button onClick={() => onEdit(loan)} className="p-2 text-slate-400 bg-slate-50 rounded-lg"><Edit3 size={16} /></button>
@@ -111,9 +120,20 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
             
             <div className="mt-3 flex items-center justify-between">
                <span className="text-[10px] font-bold text-slate-400 uppercase">{loan.description}</span>
-               <span className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase ${
-                  loan.metalType === 'Gold' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-200 text-slate-700'
-                }`}>{loan.metalType} ({loan.netWeight || loan.weight}g)</span>
+               <div className="flex flex-col items-end gap-1">
+                 <span className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase ${
+                    loan.metalType === 'Gold' ? 'bg-yellow-100 text-yellow-700' : 
+                    loan.metalType === 'Silver' ? 'bg-slate-200 text-slate-700' : 'bg-indigo-100 text-indigo-700'
+                  }`}>{loan.metalType}</span>
+                 {loan.metalType === 'Both' ? (
+                   <div className="flex flex-col text-[8px] font-bold text-slate-500 items-end">
+                     <span>G: {loan.goldNetWeight || loan.goldWeight}g</span>
+                     <span>S: {loan.silverNetWeight || loan.silverWeight}g</span>
+                   </div>
+                 ) : (
+                   <span className="text-[8px] font-bold text-slate-500">{loan.netWeight || loan.weight}g</span>
+                 )}
+               </div>
             </div>
           </div>
         ))}
@@ -136,10 +156,18 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
             {filteredLoans.map((loan) => (
               <tr key={loan.id} className={`hover:bg-slate-50/50 transition-colors group ${loan.status === 'Closed' ? 'bg-red-50/10' : ''}`}>
                 <td className="px-6 py-4">
-                  <div className="flex flex-col">
-                    <span className="font-mono text-sm font-bold text-slate-500">#{String(loan.serialNumber).padStart(4, '0')}</span>
-                    {loan.status === 'Closed' && <span className="text-[10px] font-black text-red-600 uppercase mt-1">PAID</span>}
-                  </div>
+                <div className="flex flex-col">
+                  <span className="font-mono text-sm font-bold text-slate-500">#{String(loan.serialNumber).padStart(4, '0')}</span>
+                  {loan.status === 'Closed' && (
+                    <button 
+                      onClick={() => onAdjustDate(loan)}
+                      className="flex flex-col mt-1 hover:bg-red-50 p-1 rounded transition-colors text-left"
+                    >
+                      <span className="text-[10px] font-black text-red-600 uppercase">PAID</span>
+                      {loan.closeDate && <span className="text-[9px] text-slate-400 font-bold underline decoration-dotted">{new Date(loan.closeDate).toLocaleDateString()}</span>}
+                    </button>
+                  )}
+                </div>
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex flex-col">
@@ -151,10 +179,22 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
                 <td className="px-6 py-4">
                   <div className="flex flex-col">
                     <div className="flex items-center space-x-1">
-                      <span className="text-sm font-bold text-slate-700">{loan.netWeight || loan.weight}g</span>
-                      <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${loan.metalType === 'Gold' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-200 text-slate-700'}`}>{loan.metalType}</span>
+                      {loan.metalType === 'Both' ? (
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs font-bold text-yellow-600">G: {loan.goldNetWeight || loan.goldWeight}g</span>
+                            <span className="text-xs font-bold text-slate-400">S: {loan.silverNetWeight || loan.silverWeight}g</span>
+                          </div>
+                          <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-indigo-100 text-indigo-700 w-fit mt-1">Both</span>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="text-sm font-bold text-slate-700">{loan.netWeight || loan.weight}g</span>
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${loan.metalType === 'Gold' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-200 text-slate-700'}`}>{loan.metalType}</span>
+                        </>
+                      )}
                     </div>
-                    <span className="text-xs text-slate-500 truncate max-w-[150px]">{loan.description}</span>
+                    <span className="text-xs text-slate-500 truncate max-w-[150px] mt-1">{loan.description}</span>
                   </div>
                 </td>
                 <td className="px-6 py-4 text-right">

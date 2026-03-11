@@ -5,25 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     
     <!-- Primary Meta Tags -->
-    <title>GirviGold - Digital Girvi Ledger</title>
-    <meta name="title" content="GirviGold - Digital Girvi Ledger">
-    <meta name="description" content="Secure and professional digital ledger for Gold & Silver loans. Manage collateral, calculate interest, and track payments.">
+    <title>BALAJI PAWN BROKERS - Digital Ledger</title>
+    <meta name="title" content="BALAJI PAWN BROKERS - Digital Ledger">
+    <meta name="description" content="Secure digital ledger for Gold & Silver loans. Manage collateral and calculate interest automatically.">
     
-    <!-- Open Graph / Facebook -->
-    <meta property="og:type" content="website">
-    <meta property="og:title" content="GirviGold - Digital Girvi Ledger">
-    <meta property="og:description" content="Secure and professional digital ledger for Gold & Silver loans. Manage collateral, calculate interest, and track payments.">
-    <meta property="og:image" content="https://cdn-icons-png.flaticon.com/512/2696/2696191.png">
-
-    <!-- Twitter -->
-    <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:title" content="GirviGold - Digital Girvi Ledger">
-    <meta property="twitter:description" content="Secure and professional digital ledger for Gold & Silver loans. Manage collateral, calculate interest, and track payments.">
-
+    <!-- Vercel/PWA Metadata -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#EAB308">
-    
-    <!-- Apple Mobile Web App -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2696/2696191.png">
@@ -44,17 +32,32 @@
             padding-top: var(--sat);
             padding-bottom: var(--sab);
             -webkit-tap-highlight-color: transparent;
+            overflow-x: hidden;
         }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
-        /* Smooth transitions for PWA feel */
+        /* Optimized transitions for Vercel hosting */
         .page-transition {
-            animation: fadeIn 0.3s ease-out;
+            animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
+            from { opacity: 0; transform: translateY(8px); }
             to { opacity: 1; transform: translateY(0); }
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
         }
     </style>
 <script type="importmap">
@@ -68,10 +71,11 @@
   }
 }
 </script>
+<link rel="stylesheet" href="/index.css">
 </head>
 <body>
     <div id="root"></div>
-    <!-- Bootstrapping the React application -->
     <script type="module" src="index.tsx"></script>
+<script type="module" src="/index.tsx"></script>
 </body>
 </html>

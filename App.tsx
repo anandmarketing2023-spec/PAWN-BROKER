@@ -10,17 +10,23 @@ import {
   X,
   Users
 } from 'lucide-react';
-import { LoanEntry } from './types';
+import { LoanEntry, BackupConfig, BackupEntry } from './types';
 import Dashboard from './components/Dashboard';
 import LoanEntryForm from './components/LoanEntryForm';
 import Ledger from './components/Ledger';
 import CustomerSheet from './components/CustomerSheet';
+import StorageSettings from './components/StorageSettings';
+import SettlementModal from './components/SettlementModal';
+import BackupManager from './components/BackupManager';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'entry' | 'ledger' | 'customers'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'entry' | 'ledger' | 'customers' | 'storage'>('dashboard');
   const [loans, setLoans] = useState<LoanEntry[]>([]);
+  const [backupConfig, setBackupConfig] = useState<BackupConfig>({ frequency: 'Daily', enabled: true });
+  const [backups, setBackups] = useState<BackupEntry[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editingLoan, setEditingLoan] = useState<LoanEntry | null>(null);
+  const [settlingLoan, setSettlingLoan] = useState<LoanEntry | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('girvi_loans');
@@ -31,13 +37,89 @@ const App: React.FC = () => {
         console.error("Failed to parse saved loans", e);
       }
     }
+
+    const savedConfig = localStorage.getItem('girvi_backup_config');
+    if (savedConfig) {
+      try {
+        setBackupConfig(JSON.parse(savedConfig));
+      } catch (e) {
+        console.error("Failed to parse backup config", e);
+      }
+    }
+
+    const savedBackups = localStorage.getItem('girvi_backups');
+    if (savedBackups) {
+      try {
+        setBackups(JSON.parse(savedBackups));
+      } catch (e) {
+        console.error("Failed to parse backups", e);
+      }
+    }
   }, []);
 
   useEffect(() => {
+    localStorage.setItem('girvi_backup_config', JSON.stringify(backupConfig));
+  }, [backupConfig]);
+
+  useEffect(() => {
+    localStorage.setItem('girvi_backups', JSON.stringify(backups));
+  }, [backups]);
+
+  // Auto Backup Logic
+  useEffect(() => {
+    if (!backupConfig.enabled || loans.length === 0) return;
+
+    const now = new Date();
+    const lastBackupDate = backupConfig.lastBackup ? new Date(backupConfig.lastBackup) : null;
+    
+    let shouldBackup = false;
+    let backupType: 'Daily' | 'Weekly' = 'Daily';
+
+    if (!lastBackupDate) {
+      shouldBackup = true;
+    } else {
+      const diffTime = Math.abs(now.getTime() - lastBackupDate.getTime());
+      const diffDays = diffTime / (1000 * 60 * 60 * 24);
+
+      if (backupConfig.frequency === 'Daily' && diffDays >= 1) {
+        shouldBackup = true;
+        backupType = 'Daily';
+      } else if (backupConfig.frequency === 'Weekly' && diffDays >= 7) {
+        shouldBackup = true;
+        backupType = 'Weekly';
+      }
+    }
+
+    if (shouldBackup) {
+      const newBackup: BackupEntry = {
+        id: crypto.randomUUID(),
+        timestamp: now.toISOString(),
+        type: backupType,
+        recordCount: loans.length,
+        data: loans
+      };
+
+      // Keep only last 10 backups to save space
+      const updatedBackups = [newBackup, ...backups].slice(0, 10);
+      setBackups(updatedBackups);
+      setBackupConfig(prev => ({ ...prev, lastBackup: now.toISOString() }));
+    }
+  }, [loans, backupConfig, backups]);
+
+  useEffect(() => {
     localStorage.setItem('girvi_loans', JSON.stringify(loans));
+    
+    // Create an automatic snapshot every time data changes (debounced or just simple for now)
+    // We keep a secondary backup key that is only updated if the data is valid
+    if (loans.length > 0) {
+      localStorage.setItem('girvi_loans_backup_latest', JSON.stringify({
+        timestamp: new Date().toISOString(),
+        data: loans
+      }));
+    }
   }, [loans]);
 
-  const saveLoan = (loanData: Omit<LoanEntry, 'id'>) => {
+  const saveLoan = (loanData: Omit<LoanEntry, 'id' | 'isDeleted'>) => {
     if (editingLoan) {
       let closeDate = editingLoan.closeDate;
       if (loanData.status === 'Closed' && !closeDate) {
@@ -59,22 +141,25 @@ const App: React.FC = () => {
   };
 
   const deleteLoan = (id: string) => {
-    if (window.confirm("Are you sure you want to delete this record?")) {
-      setLoans(loans.filter(l => l.id !== id));
+    if (window.confirm("Are you sure you want to delete this record? It will be moved to the trash and can be recovered later.")) {
+      setLoans(loans.map(l => l.id === id ? { ...l, isDeleted: true } : l));
     }
   };
 
-  const closeLoan = (id: string) => {
+  const closeLoan = (id: string, customDate?: string) => {
     const loan = loans.find(l => l.id === id);
     if (!loan) return;
+    
     if (loan.status === 'Closed') {
       if (window.confirm("Re-open as UNPAID?")) {
         setLoans(loans.map(l => l.id === id ? { ...l, status: 'Active', closeDate: undefined } : l));
       }
     } else {
-      const date = new Date().toISOString().split('T')[0];
-      if (window.confirm(`Mark as PAID?`)) {
-        setLoans(loans.map(l => l.id === id ? { ...l, status: 'Closed', closeDate: date } : l));
+      if (customDate) {
+        setLoans(loans.map(l => l.id === id ? { ...l, status: 'Closed', closeDate: customDate } : l));
+        setSettlingLoan(null);
+      } else {
+        setSettlingLoan(loan);
       }
     }
   };
@@ -84,7 +169,15 @@ const App: React.FC = () => {
     setActiveTab('entry');
   };
 
-  const nextAutoSerial = loans.length > 0 ? Math.max(...loans.map(l => l.serialNumber)) + 1 : 1;
+  const adjustSettlementDate = (loan: LoanEntry) => {
+    setSettlingLoan(loan);
+  };
+
+  const nextAutoSerial = loans.filter(l => !l.isDeleted).length > 0 
+    ? Math.max(...loans.filter(l => !l.isDeleted).map(l => l.serialNumber)) + 1 
+    : 1;
+
+  const activeLoans = loans.filter(l => !l.isDeleted);
 
   // Bottom Navigation Item (Mobile Only)
   const BottomNavItem = ({ id, icon: Icon, label }: { id: typeof activeTab, icon: any, label: string }) => (
@@ -119,6 +212,7 @@ const App: React.FC = () => {
             { id: 'entry', icon: PlusCircle, label: editingLoan ? 'Edit Entry' : 'New Entry' },
             { id: 'ledger', icon: BookOpen, label: 'Ledger' },
             { id: 'customers', icon: Users, label: 'Customers' },
+            { id: 'storage', icon: Settings, label: 'Storage' },
           ].map((item) => (
             <button
               key={item.id}
@@ -147,15 +241,26 @@ const App: React.FC = () => {
           </div>
           <span className="text-lg font-bold text-slate-800">GirviGold</span>
         </div>
-        <button className="text-slate-400 p-1">
-          <Settings size={20} />
-        </button>
+        <div className="flex items-center space-x-2">
+          <button 
+            onClick={() => setActiveTab('customers')}
+            className={`p-1 transition-colors ${activeTab === 'customers' ? 'text-yellow-600' : 'text-slate-400'}`}
+          >
+            <Users size={20} />
+          </button>
+          <button 
+            onClick={() => setActiveTab('storage')}
+            className={`p-1 transition-colors ${activeTab === 'storage' ? 'text-yellow-600' : 'text-slate-400'}`}
+          >
+            <Settings size={20} />
+          </button>
+        </div>
       </div>
 
       {/* Main Content Area */}
       <main className="flex-1 p-4 md:p-10 overflow-x-hidden">
         <div className="max-w-6xl mx-auto">
-          {activeTab === 'dashboard' && <Dashboard loans={loans} />}
+          {activeTab === 'dashboard' && <Dashboard loans={activeLoans} />}
           {activeTab === 'entry' && (
             <LoanEntryForm 
               onSave={saveLoan} 
@@ -167,9 +272,54 @@ const App: React.FC = () => {
               }}
             />
           )}
-          {activeTab === 'ledger' && <Ledger loans={loans} onDelete={deleteLoan} onEdit={handleEdit} onUpdateStatus={closeLoan} />}
-          {activeTab === 'customers' && <CustomerSheet loans={loans} />}
+          {activeTab === 'ledger' && (
+            <Ledger 
+              loans={activeLoans} 
+              onDelete={deleteLoan} 
+              onEdit={handleEdit} 
+              onUpdateStatus={closeLoan} 
+              onAdjustDate={adjustSettlementDate}
+            />
+          )}
+          {activeTab === 'customers' && <CustomerSheet loans={activeLoans} />}
+          {activeTab === 'storage' && (
+            <StorageSettings 
+              loans={loans} 
+              onImport={setLoans}
+              backupConfig={backupConfig}
+              onBackupConfigChange={setBackupConfig}
+              backups={backups}
+              onRestoreBackup={(data) => {
+                if (window.confirm("Restore this backup? Current data will be replaced.")) {
+                  setLoans(data);
+                  alert("Backup restored successfully!");
+                }
+              }}
+              onDeleteBackup={(id) => {
+                setBackups(backups.filter(b => b.id !== id));
+              }}
+              onManualBackup={() => {
+                const newBackup: BackupEntry = {
+                  id: crypto.randomUUID(),
+                  timestamp: new Date().toISOString(),
+                  type: 'Manual',
+                  recordCount: loans.length,
+                  data: loans
+                };
+                setBackups([newBackup, ...backups].slice(0, 10));
+                alert("Manual backup created!");
+              }}
+            />
+          )}
         </div>
+
+        {settlingLoan && (
+          <SettlementModal 
+            loan={settlingLoan} 
+            onClose={() => setSettlingLoan(null)} 
+            onConfirm={closeLoan} 
+          />
+        )}
       </main>
 
       {/* Mobile Bottom Navigation */}
@@ -185,7 +335,7 @@ const App: React.FC = () => {
            </button>
         </div>
         <BottomNavItem id="customers" icon={Users} label="Sheet" />
-        <BottomNavItem id="dashboard" icon={Settings} label="More" />
+        <BottomNavItem id="storage" icon={Settings} label="Storage" />
       </nav>
     </div>
   );

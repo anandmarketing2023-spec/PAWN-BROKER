@@ -59,13 +59,33 @@ const CustomerSheet: React.FC<CustomerSheetProps> = ({ loans }) => {
       }
 
       // Group items
-      let metalItem = summary.items.find(i => i.metalType === loan.metalType && i.isActive === (loan.status === 'Active'));
-      if (!metalItem) {
-        metalItem = { metalType: loan.metalType, totalWeight: 0, descriptions: [], isActive: loan.status === 'Active' };
-        summary.items.push(metalItem);
+      const processItem = (metalType: string, weight: number, description: string) => {
+        let metalItem = summary.items.find(i => i.metalType === metalType && i.isActive === (loan.status === 'Active'));
+        if (!metalItem) {
+          metalItem = { metalType, totalWeight: 0, descriptions: [], isActive: loan.status === 'Active' };
+          summary.items.push(metalItem);
+        }
+        metalItem.totalWeight += weight;
+        if (!metalItem.descriptions.includes(description)) {
+          metalItem.descriptions.push(description);
+        }
+      };
+
+      if (loan.metalType === 'Both') {
+        if (loan.goldWeight || loan.goldNetWeight) {
+          processItem('Gold', loan.goldNetWeight || loan.goldWeight || 0, `${loan.description} (Gold part)`);
+        }
+        if (loan.silverWeight || loan.silverNetWeight) {
+          processItem('Silver', loan.silverNetWeight || loan.silverWeight || 0, `${loan.description} (Silver part)`);
+        }
+        // If no separate weights, fallback to 50/50
+        if (!loan.goldWeight && !loan.silverWeight) {
+          processItem('Gold', (loan.netWeight || loan.weight) * 0.5, `${loan.description} (50% Gold)`);
+          processItem('Silver', (loan.netWeight || loan.weight) * 0.5, `${loan.description} (50% Silver)`);
+        }
+      } else {
+        processItem(loan.metalType, loan.netWeight || loan.weight, loan.description);
       }
-      metalItem.totalWeight += loan.weight;
-      metalItem.descriptions.push(loan.description);
     });
 
     return Array.from(customerMap.values())
