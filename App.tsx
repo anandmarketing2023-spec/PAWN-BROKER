@@ -17,7 +17,6 @@ import Ledger from './components/Ledger';
 import CustomerSheet from './components/CustomerSheet';
 import StorageSettings from './components/StorageSettings';
 import SettlementModal from './components/SettlementModal';
-import BackupManager from './components/BackupManager';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'entry' | 'ledger' | 'customers' | 'storage'>('dashboard');
@@ -109,8 +108,7 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('girvi_loans', JSON.stringify(loans));
     
-    // Create an automatic snapshot every time data changes (debounced or just simple for now)
-    // We keep a secondary backup key that is only updated if the data is valid
+    // Create an automatic snapshot every time data changes
     if (loans.length > 0) {
       localStorage.setItem('girvi_loans_backup_latest', JSON.stringify({
         timestamp: new Date().toISOString(),

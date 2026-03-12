@@ -12,7 +12,6 @@ import {
   CheckCircle,
   Trash2,
   RotateCcw,
-  History,
   AlertTriangle
 } from 'lucide-react';
 import { LoanEntry, BackupConfig, BackupEntry } from '../types';
@@ -43,7 +42,6 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
   const [copySuccess, setCopySuccess] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isPasting, setIsPasting] = useState(false);
-  const [showTrash, setShowTrash] = useState(false);
 
   const deletedLoans = loans.filter(l => l.isDeleted);
   const activeLoansCount = loans.filter(l => !l.isDeleted).length;
@@ -88,7 +86,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
     const dataStr = JSON.stringify(loans, null, 2);
     const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
     
-    const exportFileDefaultName = `girvigold_backup_${new Date().toISOString().split('T')[0]}.json`;
+    const exportFileDefaultName = `balaji_ledger_${new Date().toISOString().split('T')[0]}.json`;
     
     const linkElement = document.createElement('a');
     linkElement.setAttribute('href', dataUri);
@@ -109,14 +107,14 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
 
   const handleShare = async () => {
     const dataStr = JSON.stringify(loans, null, 2);
-    const file = new File([dataStr], `girvigold_backup_${new Date().toISOString().split('T')[0]}.json`, { type: 'application/json' });
+    const file = new File([dataStr], `balaji_ledger_${new Date().toISOString().split('T')[0]}.json`, { type: 'application/json' });
     
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({
           files: [file],
-          title: 'GirviGold Backup',
-          text: 'My GirviGold Ledger Backup'
+          title: 'Balaji Ledger Backup',
+          text: 'My Balaji Pawn Brokers Ledger Backup'
         });
       } catch (err) {
         if ((err as Error).name !== 'AbortError') {
@@ -130,10 +128,9 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
 
   const handleUpdateCheck = () => {
     setIsUpdating(true);
-    // Simulate checking for updates
     setTimeout(() => {
       setIsUpdating(false);
-      if (window.confirm("App is up to date (v1.0.0). Would you like to refresh the application to ensure everything is synced?")) {
+      if (window.confirm("App is up to date (v1.0.0). Refresh to sync?")) {
         window.location.reload();
       }
     }, 1500);
@@ -152,7 +149,6 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
         
         if (Array.isArray(importedData)) {
           if (window.confirm(`Import ${importedData.length} records? This will merge with your existing data.`)) {
-            // Simple merge by ID to avoid duplicates
             const existingIds = new Set(loans.map(l => l.id));
             const newLoans = [...loans];
             
@@ -166,15 +162,14 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
             alert('Data imported successfully!');
           }
         } else {
-          alert('Invalid file format. Please upload a valid backup file.');
+          alert('Invalid file format.');
         }
       } catch (err) {
-        alert('Error parsing file. Make sure it is a valid JSON backup.');
+        alert('Error parsing file.');
       }
     };
     
     fileReader.readAsText(file);
-    // Reset input
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -185,7 +180,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
       const importedData = JSON.parse(text);
       
       if (Array.isArray(importedData)) {
-        if (window.confirm(`Import ${importedData.length} records from clipboard? This will merge with your existing data.`)) {
+        if (window.confirm(`Import ${importedData.length} records from clipboard?`)) {
           const existingIds = new Set(loans.map(l => l.id));
           const newLoans = [...loans];
           
@@ -196,13 +191,13 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
           });
           
           onImport(newLoans);
-          alert('Data imported successfully from clipboard!');
+          alert('Data imported successfully!');
         }
       } else {
-        alert('Invalid data in clipboard. Please copy a valid backup JSON.');
+        alert('Invalid data in clipboard.');
       }
     } catch (err) {
-      alert('Failed to read from clipboard or invalid data format.');
+      alert('Failed to read from clipboard.');
     } finally {
       setIsPasting(false);
     }
@@ -229,111 +224,88 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
           <h3 className="font-bold text-blue-900 mb-1">Privacy First Storage</h3>
           <p className="text-blue-800/80 text-sm leading-relaxed">
             Your data is stored <strong>locally on this device</strong>. No data is sent to any server. 
-            This ensures maximum privacy and offline accessibility, but means if you clear your browser cache 
-            or lose your device, your records might be lost.
+            Ensure you take regular backups to avoid data loss.
           </p>
         </div>
       </div>
 
       {/* Auto Backup Section */}
-      <BackupManager 
-        config={backupConfig} 
-        onConfigChange={onBackupConfigChange} 
-        backups={backups} 
-        onRestore={onRestoreBackup} 
-        onDeleteBackup={onDeleteBackup} 
-        onManualBackup={onManualBackup} 
-      />
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <BackupManager 
+          config={backupConfig} 
+          onConfigChange={onBackupConfigChange} 
+          backups={backups} 
+          onRestore={onRestoreBackup} 
+          onDeleteBackup={onDeleteBackup} 
+          onManualBackup={onManualBackup} 
+        />
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Status Card */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="font-bold text-slate-800 flex items-center">
-              <Smartphone size={18} className="mr-2 text-slate-400" />
-              Device Status
-            </h3>
-            <span className="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold uppercase rounded-md">
-              Local Only
-            </span>
-          </div>
-          
-          <div className="space-y-4">
-            <div className="flex justify-between items-center py-2 border-b border-slate-50">
-              <span className="text-slate-500 text-sm">Active Records</span>
-              <span className="font-bold text-slate-800">{activeLoansCount}</span>
-            </div>
-            <div className="flex justify-between items-center py-2 border-b border-slate-50">
-              <span className="text-slate-500 text-sm">Trash (Deleted)</span>
-              <span className="font-bold text-red-500">{deletedLoans.length}</span>
-            </div>
-            <div className="flex justify-between items-center py-2 border-b border-slate-50">
-              <span className="text-slate-500 text-sm">Storage Used</span>
-              <span className="font-bold text-slate-800">{formattedSize} KB</span>
-            </div>
-            <div className="flex justify-between items-center py-2">
-              <span className="text-slate-500 text-sm">Location</span>
-              <span className="font-mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-600">localStorage</span>
-            </div>
-          </div>
-        </div>
-
         {/* Backup Card */}
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <h3 className="font-bold text-slate-800 mb-6 flex items-center">
             <Download size={18} className="mr-2 text-slate-400" />
-            Backup & Restore
+            Backup Data
           </h3>
           
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <button 
-                onClick={handleExport}
-                className="flex flex-col items-center justify-center space-y-2 bg-slate-800 hover:bg-slate-900 text-white p-4 rounded-xl transition-all font-medium text-sm"
-              >
-                <Download size={20} />
-                <span>Save File</span>
-              </button>
-              
-              <button 
-                onClick={handleShare}
-                className="flex flex-col items-center justify-center space-y-2 bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl transition-all font-medium text-sm"
-              >
-                <Share2 size={20} />
-                <span>Share Data</span>
-              </button>
-            </div>
-
             <button 
-              onClick={handleCopyToClipboard}
-              className={`w-full flex items-center justify-center space-x-2 py-3 rounded-xl transition-all font-medium border ${
-                copySuccess 
-                ? 'bg-green-50 border-green-200 text-green-600' 
-                : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
-              }`}
+              onClick={handleExport}
+              className="w-full flex items-center justify-center space-x-3 bg-slate-800 hover:bg-slate-900 text-white py-4 rounded-xl transition-all font-bold shadow-lg shadow-slate-200"
             >
-              {copySuccess ? <CheckCircle size={18} /> : <Copy size={18} />}
-              <span>{copySuccess ? 'Copied to Clipboard!' : 'Copy Data to Clipboard'}</span>
+              <Download size={20} />
+              <span>Download Backup File</span>
             </button>
             
-            <div className="pt-2 border-t border-slate-100 mt-2 space-y-2">
+            <div className="grid grid-cols-2 gap-3">
               <button 
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full flex items-center justify-center space-x-2 bg-yellow-500 hover:bg-yellow-600 text-white py-3 rounded-xl transition-all font-medium shadow-md shadow-yellow-100"
+                onClick={handleShare}
+                className="flex items-center justify-center space-x-2 bg-blue-50 hover:bg-blue-100 text-blue-700 py-3 rounded-xl transition-all font-bold text-xs"
               >
-                <Upload size={18} />
-                <span>Import from File</span>
+                <Share2 size={16} />
+                <span>Share</span>
               </button>
-
               <button 
-                onClick={handlePasteImport}
-                disabled={isPasting}
-                className="w-full flex items-center justify-center space-x-2 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl transition-all font-medium border border-slate-200"
+                onClick={handleCopyToClipboard}
+                className={`flex items-center justify-center space-x-2 py-3 rounded-xl transition-all font-bold text-xs border ${
+                  copySuccess 
+                  ? 'bg-green-50 border-green-200 text-green-600' 
+                  : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                }`}
               >
-                <Upload size={18} />
-                <span>{isPasting ? 'Reading...' : 'Paste Data from Clipboard'}</span>
+                {copySuccess ? <CheckCircle size={16} /> : <Copy size={16} />}
+                <span>{copySuccess ? 'Copied' : 'Copy'}</span>
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* Restore Card */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <h3 className="font-bold text-slate-800 mb-6 flex items-center">
+            <Upload size={18} className="mr-2 text-slate-400" />
+            Restore Data
+          </h3>
+          
+          <div className="space-y-3">
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full flex items-center justify-center space-x-3 bg-yellow-500 hover:bg-yellow-600 text-white py-4 rounded-xl transition-all font-bold shadow-lg shadow-yellow-100"
+            >
+              <Upload size={20} />
+              <span>Upload Backup File</span>
+            </button>
+
+            <button 
+              onClick={handlePasteImport}
+              disabled={isPasting}
+              className="w-full flex items-center justify-center space-x-2 bg-slate-50 hover:bg-slate-100 text-slate-600 py-3 rounded-xl transition-all font-bold text-xs border border-slate-200"
+            >
+              <Upload size={16} />
+              <span>{isPasting ? 'Reading...' : 'Paste from Clipboard'}</span>
+            </button>
+            
             <input 
               type="file" 
               ref={fileInputRef} 
@@ -346,22 +318,33 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Recovery Section */}
+        {/* Status Card */}
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <h3 className="font-bold text-slate-800 mb-6 flex items-center">
-            <History size={18} className="mr-2 text-slate-400" />
-            Device Recovery
+            <Smartphone size={18} className="mr-2 text-slate-400" />
+            Device Status
           </h3>
-          <p className="text-slate-500 text-xs mb-4">
-            If data is accidentally lost or deleted, you can try to recover it from the automatic snapshot stored on this device.
-          </p>
-          <button 
-            onClick={handleRestoreFromSnapshot}
-            className="w-full flex items-center justify-center space-x-2 bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl transition-all font-medium"
-          >
-            <RotateCcw size={18} />
-            <span>Restore from Auto-Snapshot</span>
-          </button>
+          
+          <div className="space-y-4">
+            <div className="flex justify-between items-center py-2 border-b border-slate-50">
+              <span className="text-slate-500 text-sm">Active Records</span>
+              <span className="font-bold text-slate-800">{activeLoansCount}</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-slate-50">
+              <span className="text-slate-500 text-sm">Storage Used</span>
+              <span className="font-bold text-slate-800">{formattedSize} KB</span>
+            </div>
+            <div className="flex justify-between items-center py-2">
+              <span className="text-slate-500 text-sm">Safety Net</span>
+              <button 
+                onClick={handleRestoreFromSnapshot}
+                className="text-xs font-bold text-blue-600 hover:underline flex items-center"
+              >
+                <RotateCcw size={12} className="mr-1" />
+                Restore Snapshot
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Trash Section */}
@@ -382,31 +365,28 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
           </div>
           
           {deletedLoans.length === 0 ? (
-            <div className="text-center py-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+            <div className="text-center py-6 bg-slate-50 rounded-xl border border-dashed border-slate-200">
               <p className="text-slate-400 text-xs italic">Trash is empty</p>
             </div>
           ) : (
-            <div className="space-y-3 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
+            <div className="space-y-2 max-h-[120px] overflow-y-auto pr-2 custom-scrollbar">
               {deletedLoans.map(loan => (
-                <div key={loan.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <div key={loan.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
                   <div className="min-w-0">
-                    <p className="text-xs font-bold text-slate-800 truncate">#{loan.serialNumber} - {loan.name}</p>
-                    <p className="text-[10px] text-slate-500">₹{loan.amount.toLocaleString()}</p>
+                    <p className="text-[10px] font-bold text-slate-800 truncate">#{loan.serialNumber} - {loan.name}</p>
                   </div>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-1">
                     <button 
                       onClick={() => handleRestore(loan.id)}
-                      className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      title="Restore"
+                      className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
                     >
-                      <RotateCcw size={14} />
+                      <RotateCcw size={12} />
                     </button>
                     <button 
                       onClick={() => handleHardDelete(loan.id)}
-                      className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                      title="Delete Permanently"
+                      className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={12} />
                     </button>
                   </div>
                 </div>
@@ -416,32 +396,10 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
         </div>
       </div>
 
-      {/* Update Section */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-slate-800 flex items-center">
-            <RefreshCw size={18} className="mr-2 text-slate-400" />
-            App Updates
-          </h3>
-          <span className="text-xs font-bold text-slate-400">v1.0.0</span>
-        </div>
-        <p className="text-slate-500 text-sm mb-6">
-          Check for new features or security updates. Your data will remain safe during the update process.
-        </p>
-        <button 
-          onClick={handleUpdateCheck}
-          disabled={isUpdating}
-          className="flex items-center space-x-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 px-6 py-3 rounded-xl transition-all font-bold text-slate-700"
-        >
-          <RefreshCw size={18} className={isUpdating ? 'animate-spin' : ''} />
-          <span>{isUpdating ? 'Checking...' : 'Check for Updates'}</span>
-        </button>
-      </div>
-
       <div className="text-center py-4">
-        <p className="text-slate-400 text-xs flex items-center justify-center">
+        <p className="text-slate-400 text-[10px] flex items-center justify-center uppercase tracking-widest font-bold">
           <Info size={12} className="mr-1" />
-          Version 1.0.0 • Built for Balaji Pawn Brokers
+          Version 1.0.0 • Balaji Pawn Brokers
         </p>
       </div>
     </div>

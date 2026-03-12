@@ -28,7 +28,7 @@ export interface LoanEntry {
 }
 
 export interface BackupConfig {
-  frequency: 'Daily' | 'Weekly' | 'Manual';
+  frequency: 'Daily' | 'Weekly';
   lastBackup?: string;
   enabled: boolean;
 }

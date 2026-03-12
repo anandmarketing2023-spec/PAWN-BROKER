@@ -33,6 +33,44 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
     return (amount * rate / 100) * totalMonths;
   };
 
+  const handleExportCSV = () => {
+    if (filteredLoans.length === 0) return;
+    
+    const headers = ['S.No', 'Date', 'Name', 'Guardian', 'Contact', 'Address', 'Metal', 'Description', 'Weight', 'Net Weight', 'Amount', 'Interest Rate', 'Status', 'Close Date', 'Settled Interest'];
+    const rows = filteredLoans.map(l => [
+      l.serialNumber,
+      l.date,
+      l.name,
+      l.guardian,
+      l.contactNumber,
+      l.address,
+      l.metalType,
+      l.description,
+      l.weight,
+      l.netWeight,
+      l.amount,
+      l.interestRate,
+      l.status,
+      l.closeDate || '',
+      l.settledInterest || ''
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(r => r.map(field => `"${field}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `balaji_ledger_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="animate-in fade-in duration-500">
       <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -41,7 +79,10 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
           <p className="text-sm text-slate-500">Manage {filteredLoans.length} total records</p>
         </div>
         <div className="flex items-center space-x-2">
-          <button className="flex-1 md:flex-none flex items-center justify-center space-x-2 bg-white px-4 py-2 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm">
+          <button 
+            onClick={handleExportCSV}
+            className="flex-1 md:flex-none flex items-center justify-center space-x-2 bg-white px-4 py-2 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+          >
             <Download size={18} />
             <span className="text-sm font-semibold">CSV</span>
           </button>

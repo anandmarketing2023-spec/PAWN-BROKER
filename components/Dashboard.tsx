@@ -54,6 +54,14 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
 
     const totalInterestImpact = settledInterestTotal + liveInterestMonthly;
     
+    const avgInterestRate = activeLoans.length > 0 
+      ? activeLoans.reduce((acc, curr) => acc + curr.interestRate, 0) / activeLoans.length 
+      : 0;
+
+    const recoveryRate = loans.length > 0 
+      ? (closedLoans.length / loans.length) * 100 
+      : 0;
+    
     const metalCounts = {
       Gold: activeLoans.filter(l => l.metalType === 'Gold').length,
       Silver: activeLoans.filter(l => l.metalType === 'Silver').length,
@@ -78,6 +86,14 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
       // Monthly Data Calculation (Last 6 Months)
       const monthlyDataMap = new Map<string, { label: string, principalOut: number, principalIn: number, interest: number, timestamp: number }>();
       
+      // Pre-populate last 6 months with zeros
+      const now = new Date();
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const label = `${d.toLocaleString('default', { month: 'short' })} ${d.getFullYear()}`;
+        monthlyDataMap.set(label, { label, principalOut: 0, principalIn: 0, interest: 0, timestamp: d.getTime() });
+      }
+
       const getMonthKey = (dateStr: string) => {
         const d = new Date(dateStr);
         return {
@@ -88,24 +104,20 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
 
       loans.forEach(loan => {
         const inKey = getMonthKey(loan.date);
-        if (!monthlyDataMap.has(inKey.key)) {
-          monthlyDataMap.set(inKey.key, { label: inKey.key, principalOut: 0, principalIn: 0, interest: 0, timestamp: inKey.timestamp });
+        if (monthlyDataMap.has(inKey.key)) {
+          monthlyDataMap.get(inKey.key)!.principalOut += loan.amount;
         }
-        monthlyDataMap.get(inKey.key)!.principalOut += loan.amount;
 
         if (loan.status === 'Closed' && loan.closeDate) {
           const outKey = getMonthKey(loan.closeDate);
-          if (!monthlyDataMap.has(outKey.key)) {
-            monthlyDataMap.set(outKey.key, { label: outKey.key, principalOut: 0, principalIn: 0, interest: 0, timestamp: outKey.timestamp });
+          if (monthlyDataMap.has(outKey.key)) {
+            monthlyDataMap.get(outKey.key)!.principalIn += loan.amount;
+            monthlyDataMap.get(outKey.key)!.interest += loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate);
           }
-          monthlyDataMap.get(outKey.key)!.principalIn += loan.amount;
-          monthlyDataMap.get(outKey.key)!.interest += loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate);
         }
       });
 
-      chartData = Array.from(monthlyDataMap.values())
-        .sort((a, b) => a.timestamp - b.timestamp)
-        .slice(-6);
+      chartData = Array.from(monthlyDataMap.values()).sort((a, b) => a.timestamp - b.timestamp);
     } else {
       // Weekly Data Calculation for Selected Month
       const [year, month] = selectedMonth.split('-').map(Number);
@@ -155,15 +167,22 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
       metalCounts, 
       goldWeight, 
       silverWeight, 
-      chartData 
+      chartData,
+      avgInterestRate,
+      recoveryRate
     };
   }, [loans, viewMode, selectedMonth]);
 
-  const pieData = [
-    { name: 'Gold', value: stats.metalCounts.Gold || 0.1, color: '#EAB308' },
-    { name: 'Silver', value: stats.metalCounts.Silver || 0.1, color: '#94A3B8' },
-    { name: 'Both', value: stats.metalCounts.Both || 0.1, color: '#FACC15' },
-  ];
+  const pieData = useMemo(() => {
+    const data = [
+      { name: 'Gold', value: stats.metalCounts.Gold, color: '#EAB308' },
+      { name: 'Silver', value: stats.metalCounts.Silver, color: '#94A3B8' },
+      { name: 'Both', value: stats.metalCounts.Both, color: '#FACC15' },
+    ];
+    // Only show slices with actual values, or a placeholder if all are zero
+    const filtered = data.filter(d => d.value > 0);
+    return filtered.length > 0 ? filtered : [{ name: 'No Data', value: 1, color: '#f1f5f9' }];
+  }, [stats.metalCounts]);
 
   const StatCard = ({ label, value, icon: Icon, colorClass, subValue }: any) => (
     <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
@@ -246,7 +265,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
            <div className="space-y-4 my-6">
               <div className="flex items-center justify-between border-b border-white/20 pb-2">
                 <span className="text-xs font-bold opacity-80 uppercase">Avg. Interest Rate</span>
-                <span className="font-black">3.2% p.m.</span>
+                <span className="font-black">{stats.avgInterestRate.toFixed(1)}% p.m.</span>
               </div>
               <div className="flex items-center justify-between border-b border-white/20 pb-2">
                 <span className="text-xs font-bold opacity-80 uppercase">Active Portfolio</span>
@@ -254,7 +273,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold opacity-80 uppercase">Recovery Rate</span>
-                <span className="font-black">94.2%</span>
+                <span className="font-black">{stats.recoveryRate.toFixed(1)}%</span>
               </div>
            </div>
 

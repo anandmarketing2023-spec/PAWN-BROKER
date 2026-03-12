@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Calendar, CheckCircle2, IndianRupee } from 'lucide-react';
+import { X, Calendar, CheckCircle2, IndianRupee, Printer } from 'lucide-react';
 import { LoanEntry } from '../types';
 
 interface SettlementModalProps {
@@ -29,6 +29,89 @@ const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConf
   }, [settlementDate, loan.amount, loan.interestRate, loan.date]);
 
   const total = loan.amount + Number(settledInterest);
+
+  const handlePrint = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const html = `
+      <html>
+        <head>
+          <title>Settlement Receipt - ${loan.serialNumber}</title>
+          <style>
+            body { font-family: 'Inter', sans-serif; padding: 40px; color: #1e293b; }
+            .header { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 30px; }
+            .header h1 { margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px; }
+            .header p { margin: 5px 0 0; color: #64748b; font-size: 12px; }
+            .details { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+            .label { font-size: 10px; font-weight: bold; color: #94a3b8; text-transform: uppercase; }
+            .value { font-size: 14px; font-weight: bold; margin-top: 4px; }
+            .financials { background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 30px; }
+            .row { display: flex; justify-between: space-between; margin-bottom: 10px; }
+            .row:last-child { border-top: 1px solid #e2e8f0; padding-top: 10px; margin-top: 10px; font-size: 18px; }
+            .footer { text-align: center; font-size: 10px; color: #94a3b8; margin-top: 50px; }
+            @media print { .no-print { display: none; } }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>BALAJI PAWN BROKERS</h1>
+            <p>Settlement Receipt • Serial No: ${String(loan.serialNumber).padStart(4, '0')}</p>
+          </div>
+          
+          <div class="details">
+            <div>
+              <div class="label">Customer Name</div>
+              <div class="value">${loan.name}</div>
+            </div>
+            <div>
+              <div class="label">Settlement Date</div>
+              <div class="value">${new Date(settlementDate).toLocaleDateString()}</div>
+            </div>
+            <div>
+              <div class="label">Item Description</div>
+              <div class="value">${loan.description} (${loan.metalType})</div>
+            </div>
+            <div>
+              <div class="label">Booking Date</div>
+              <div class="value">${new Date(loan.date).toLocaleDateString()}</div>
+            </div>
+          </div>
+
+          <div class="financials">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+              <span>Principal Amount</span>
+              <span>₹${loan.amount.toLocaleString()}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+              <span>Interest (${loan.interestRate}% p.m.)</span>
+              <span>₹${Number(settledInterest).toLocaleString()}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 20px; border-top: 1px solid #e2e8f0; padding-top: 10px; margin-top: 10px;">
+              <span>Total Paid</span>
+              <span>₹${total.toLocaleString()}</span>
+            </div>
+          </div>
+
+          <div style="margin-top: 80px; display: flex; justify-content: space-between;">
+            <div style="border-top: 1px solid #000; width: 150px; text-align: center; padding-top: 5px; font-size: 10px;">Customer Signature</div>
+            <div style="border-top: 1px solid #000; width: 150px; text-align: center; padding-top: 5px; font-size: 10px;">Authorized Signatory</div>
+          </div>
+
+          <div class="footer">
+            Thank you for your business. This is a computer generated receipt.
+          </div>
+
+          <script>
+            window.onload = () => { window.print(); window.close(); };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -86,14 +169,15 @@ const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConf
 
           <div className="flex gap-3 pt-2">
             <button 
-              onClick={onClose}
-              className="flex-1 px-4 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all"
+              onClick={handlePrint}
+              className="px-4 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
+              title="Print Receipt"
             >
-              Cancel
+              <Printer size={20} />
             </button>
             <button 
               onClick={() => onConfirm(loan.id, settlementDate, settledInterest)}
-              className="flex-[2] px-4 py-3 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl shadow-lg shadow-yellow-100 flex items-center justify-center gap-2 transition-all active:scale-95"
+              className="flex-1 px-4 py-3 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl shadow-lg shadow-yellow-100 flex items-center justify-center gap-2 transition-all active:scale-95"
             >
               <CheckCircle2 size={20} />
               Confirm Payment

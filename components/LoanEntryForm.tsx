@@ -93,9 +93,12 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
     });
   };
 
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setIsProcessingImage(true);
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64Str = reader.result as string;
@@ -133,11 +136,21 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
           // Final check on size (should be well under 2MB now)
           if (compressedBase64.length > 1.5 * 1024 * 1024) {
             alert("Image is still too large. Please try a different photo.");
+            setIsProcessingImage(false);
             return;
           }
           
           setFormData({ ...formData, imageUrl: compressedBase64 });
+          setIsProcessingImage(false);
         };
+        img.onerror = () => {
+          alert("Failed to process image. Please try again.");
+          setIsProcessingImage(false);
+        };
+      };
+      reader.onerror = () => {
+        alert("Failed to read file. Please try again.");
+        setIsProcessingImage(false);
       };
       reader.readAsDataURL(file);
     }
@@ -266,7 +279,12 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
              <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest border-l-4 border-yellow-500 pl-3">Ornament Photo</h3>
              <div className="flex flex-col md:flex-row gap-6 items-start">
                 <div className="w-full md:w-48 h-48 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center overflow-hidden relative group">
-                   {formData.imageUrl ? (
+                   {isProcessingImage ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="w-8 h-8 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Processing...</p>
+                      </div>
+                   ) : formData.imageUrl ? (
                       <>
                         <img src={formData.imageUrl} alt="Ornament" className="w-full h-full object-cover" />
                         <button 
@@ -293,19 +311,19 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
                    <div className="flex flex-wrap gap-3">
                       <button 
                         type="button"
+                        disabled={isProcessingImage}
                         onClick={() => fileInputRef.current?.click()}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-700 font-bold text-xs uppercase tracking-wider hover:bg-slate-50 transition-all shadow-sm"
+                        className={`flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-700 font-bold text-xs uppercase tracking-wider hover:bg-slate-50 transition-all shadow-sm active:scale-95 ${isProcessingImage ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
                         <Camera size={16} className="text-yellow-500" />
-                        Take Photo / Upload
+                        {isProcessingImage ? 'Processing...' : 'Capture / Upload Photo'}
                       </button>
                       <input 
                         type="file" 
                         ref={fileInputRef}
                         onChange={handleImageChange}
                         accept="image/*"
-                        capture="environment"
-                        className="hidden"
+                        className="absolute inset-0 w-0 h-0 opacity-0 pointer-events-none"
                       />
                    </div>
                    <p className="text-[10px] text-slate-400 italic">Max size: 2MB. Recommended for mobile devices.</p>
