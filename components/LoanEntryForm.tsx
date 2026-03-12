@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
-import { Save, User, MapPin, Phone, Scale, Info, MessageSquare, X, CheckCircle2, Calendar, Percent } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Save, User, MapPin, Phone, Scale, Info, MessageSquare, X, CheckCircle2, Calendar, Percent, Camera, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { LoanEntry, MetalType } from '../types';
 
 interface LoanEntryFormProps {
@@ -29,8 +29,11 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
     remark: '',
     amount: '' as string | number,
     interestRate: '' as string | number,
-    status: 'Active' as 'Active' | 'Closed'
+    status: 'Active' as 'Active' | 'Closed',
+    imageUrl: ''
   });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editingLoan) {
@@ -52,7 +55,8 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
         remark: editingLoan.remark,
         amount: editingLoan.amount,
         interestRate: editingLoan.interestRate,
-        status: editingLoan.status
+        status: editingLoan.status,
+        imageUrl: editingLoan.imageUrl || ''
       });
     } else {
       setFormData(prev => ({ 
@@ -84,8 +88,64 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
       silverNetWeight: formData.metalType === 'Both' ? Number(formData.silverNetWeight) : undefined,
       amount: Number(formData.amount),
       interestRate: Number(formData.interestRate),
-      status: formData.status
+      status: formData.status,
+      imageUrl: formData.imageUrl || undefined
     });
+  };
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64Str = reader.result as string;
+        
+        // Create an image to get dimensions and compress
+        const img = new Image();
+        img.src = base64Str;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 800;
+          const MAX_HEIGHT = 800;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          // Compress to JPEG with 0.6 quality to keep it small for localStorage
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+          
+          // Final check on size (should be well under 2MB now)
+          if (compressedBase64.length > 1.5 * 1024 * 1024) {
+            alert("Image is still too large. Please try a different photo.");
+            return;
+          }
+          
+          setFormData({ ...formData, imageUrl: compressedBase64 });
+        };
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removeImage = () => {
+    setFormData({ ...formData, imageUrl: '' });
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const inputClass = "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all outline-none text-base";
@@ -198,6 +258,57 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
                 <div>
                   <label className={labelClass}>Interest %</label>
                   <input type="number" step="0.01" className={`${inputClass} font-bold text-yellow-700 bg-yellow-50`} value={formData.interestRate} onChange={e => setFormData({...formData, interestRate: e.target.value})} required />
+                </div>
+             </div>
+          </div>
+
+          <div className="space-y-4 pt-4">
+             <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest border-l-4 border-yellow-500 pl-3">Ornament Photo</h3>
+             <div className="flex flex-col md:flex-row gap-6 items-start">
+                <div className="w-full md:w-48 h-48 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center overflow-hidden relative group">
+                   {formData.imageUrl ? (
+                      <>
+                        <img src={formData.imageUrl} alt="Ornament" className="w-full h-full object-cover" />
+                        <button 
+                          type="button"
+                          onClick={removeImage}
+                          className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </>
+                   ) : (
+                      <div className="text-center p-4">
+                         <ImageIcon className="mx-auto text-slate-300 mb-2" size={32} />
+                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">No Photo Added</p>
+                      </div>
+                   )}
+                </div>
+                
+                <div className="flex-1 space-y-3 w-full">
+                   <p className="text-xs text-slate-500 leading-relaxed">
+                      Capture a clear photo of the ornament for visual verification and record keeping. 
+                      Supports direct camera access or gallery upload.
+                   </p>
+                   <div className="flex flex-wrap gap-3">
+                      <button 
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-700 font-bold text-xs uppercase tracking-wider hover:bg-slate-50 transition-all shadow-sm"
+                      >
+                        <Camera size={16} className="text-yellow-500" />
+                        Take Photo / Upload
+                      </button>
+                      <input 
+                        type="file" 
+                        ref={fileInputRef}
+                        onChange={handleImageChange}
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                      />
+                   </div>
+                   <p className="text-[10px] text-slate-400 italic">Max size: 2MB. Recommended for mobile devices.</p>
                 </div>
              </div>
           </div>

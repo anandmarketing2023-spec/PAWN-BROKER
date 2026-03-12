@@ -1,5 +1,5 @@
 {
   "name": "BALAJI PAWN BROKERS",
   "description": "A comprehensive digital ledger for managing gold and silver loans (Girvi). Features automated serial numbering, detailed item tracking, monthly interest calculation (3% Gold, 4% Silver), robust search capabilities, and analytical dashboards.",
-  "requestFramePermissions": []
+  "requestFramePermissions": ["camera"]
 }

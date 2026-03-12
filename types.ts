@@ -22,6 +22,8 @@ export interface LoanEntry {
   amount: number;
   interestRate: number;
   status: 'Active' | 'Closed';
+  settledInterest?: number;
+  imageUrl?: string;
   isDeleted?: boolean;
 }
 

@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Search, Download, Filter, Trash2, Edit3, Calendar, Phone, CheckCircle2, MoreVertical, IndianRupee } from 'lucide-react';
+import { Search, Download, Filter, Trash2, Edit3, Calendar, Phone, CheckCircle2, MoreVertical, IndianRupee, Image as ImageIcon, X } from 'lucide-react';
 import { LoanEntry } from '../types';
 
 interface LedgerProps {
@@ -13,6 +13,7 @@ interface LedgerProps {
 
 const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus, onAdjustDate }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const filteredLoans = useMemo(() => {
     return loans.filter(loan => 
@@ -28,8 +29,7 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
     const end = closeDate ? new Date(closeDate) : new Date();
     const diffTime = Math.abs(end.getTime() - start.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    const months = diffDays / 30;
-    const totalMonths = Math.max(1, Math.round(months * 100) / 100); 
+    const totalMonths = Math.max(1, Math.ceil(diffDays / 30)); 
     return (amount * rate / 100) * totalMonths;
   };
 
@@ -89,12 +89,22 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
               </div>
             </div>
 
-            <div className="mb-4">
-              <h3 className={`text-base font-bold ${loan.status === 'Closed' ? 'text-slate-400 line-through' : 'text-slate-900'}`}>{loan.name}</h3>
-              <div className="flex items-center text-xs text-slate-500 mt-1 space-x-3">
-                <span className="flex items-center gap-1"><Phone size={12} /> {loan.contactNumber}</span>
-                <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(loan.date).toLocaleDateString()}</span>
+            <div className="mb-4 flex gap-4">
+              <div className="flex-1">
+                <h3 className={`text-base font-bold ${loan.status === 'Closed' ? 'text-slate-400 line-through' : 'text-slate-900'}`}>{loan.name}</h3>
+                <div className="flex items-center text-xs text-slate-500 mt-1 space-x-3">
+                  <span className="flex items-center gap-1"><Phone size={12} /> {loan.contactNumber}</span>
+                  <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(loan.date).toLocaleDateString()}</span>
+                </div>
               </div>
+              {loan.imageUrl && (
+                <button 
+                  onClick={() => setSelectedImage(loan.imageUrl!)}
+                  className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 shadow-sm active:scale-95 transition-transform"
+                >
+                  <img src={loan.imageUrl} alt="Ornament" className="w-full h-full object-cover" />
+                </button>
+              )}
             </div>
 
             <div className="bg-slate-50/50 rounded-xl p-3 flex justify-between items-center">
@@ -102,7 +112,9 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
                 <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Financials</p>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-lg font-black text-slate-800">₹{loan.amount.toLocaleString()}</span>
-                  <span className="text-xs font-bold text-green-600">+₹{calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate).toFixed(0)}</span>
+                  <span className="text-xs font-bold text-green-600">
+                    +₹{(loan.status === 'Closed' && loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
                 </div>
               </div>
               
@@ -170,10 +182,24 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
                 </div>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="flex flex-col">
-                    <span className={`font-bold ${loan.status === 'Closed' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{loan.name}</span>
-                    <div className="flex items-center space-x-1 mt-1 text-xs text-slate-500"><Phone size={10} /> {loan.contactNumber}</div>
-                    <div className="flex items-center space-x-1 mt-0.5 text-[10px] text-slate-400 font-bold uppercase"><Calendar size={10} /> {new Date(loan.date).toLocaleDateString()}</div>
+                  <div className="flex items-center space-x-3">
+                    {loan.imageUrl ? (
+                      <button 
+                        onClick={() => setSelectedImage(loan.imageUrl!)}
+                        className="w-10 h-10 rounded-lg overflow-hidden border border-slate-200 shadow-sm hover:scale-110 transition-transform"
+                      >
+                        <img src={loan.imageUrl} alt="Ornament" className="w-full h-full object-cover" />
+                      </button>
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-300">
+                        <ImageIcon size={16} />
+                      </div>
+                    )}
+                    <div className="flex flex-col">
+                      <span className={`font-bold ${loan.status === 'Closed' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{loan.name}</span>
+                      <div className="flex items-center space-x-1 mt-1 text-xs text-slate-500"><Phone size={10} /> {loan.contactNumber}</div>
+                      <div className="flex items-center space-x-1 mt-0.5 text-[10px] text-slate-400 font-bold uppercase"><Calendar size={10} /> {new Date(loan.date).toLocaleDateString()}</div>
+                    </div>
                   </div>
                 </td>
                 <td className="px-6 py-4">
@@ -202,7 +228,9 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
                   <div className="text-[10px] text-slate-400">{loan.interestRate}% p.m.</div>
                 </td>
                 <td className="px-6 py-4 text-right">
-                  <span className={`text-sm font-bold ${loan.status === 'Closed' ? 'text-slate-400' : 'text-green-600'}`}>+₹{calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate).toLocaleString()}</span>
+                  <span className={`text-sm font-bold ${loan.status === 'Closed' ? 'text-slate-400' : 'text-green-600'}`}>
+                    +₹{(loan.status === 'Closed' && loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex items-center justify-center space-x-2">
@@ -228,6 +256,27 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
 
       {filteredLoans.length === 0 && (
         <div className="py-20 text-center text-slate-400 italic">No records found.</div>
+      )}
+
+      {/* Image Modal */}
+      {selectedImage && (
+        <div 
+          className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setSelectedImage(null)}
+        >
+          <button 
+            className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors"
+            onClick={() => setSelectedImage(null)}
+          >
+            <X size={32} />
+          </button>
+          <img 
+            src={selectedImage} 
+            alt="Full View" 
+            className="max-w-full max-h-[90vh] rounded-2xl shadow-2xl object-contain animate-in zoom-in-95 duration-300"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
       )}
     </div>
   );

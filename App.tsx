@@ -146,17 +146,17 @@ const App: React.FC = () => {
     }
   };
 
-  const closeLoan = (id: string, customDate?: string) => {
+  const closeLoan = (id: string, customDate?: string, settledInterest?: number) => {
     const loan = loans.find(l => l.id === id);
     if (!loan) return;
     
     if (loan.status === 'Closed') {
       if (window.confirm("Re-open as UNPAID?")) {
-        setLoans(loans.map(l => l.id === id ? { ...l, status: 'Active', closeDate: undefined } : l));
+        setLoans(loans.map(l => l.id === id ? { ...l, status: 'Active', closeDate: undefined, settledInterest: undefined } : l));
       }
     } else {
       if (customDate) {
-        setLoans(loans.map(l => l.id === id ? { ...l, status: 'Closed', closeDate: customDate } : l));
+        setLoans(loans.map(l => l.id === id ? { ...l, status: 'Closed', closeDate: customDate, settledInterest } : l));
         setSettlingLoan(null);
       } else {
         setSettlingLoan(loan);
@@ -203,7 +203,7 @@ const App: React.FC = () => {
           <div className="bg-yellow-500 p-2 rounded-xl text-white shadow-md">
             <TrendingUp size={24} />
           </div>
-          <span className="text-2xl font-bold text-slate-800 tracking-tight">GirviGold</span>
+          <span className="text-xl font-bold text-slate-800 tracking-tight leading-tight">BALAJI PAWN BROKERS</span>
         </div>
 
         <nav className="space-y-2 flex-grow">
@@ -239,7 +239,7 @@ const App: React.FC = () => {
           <div className="bg-yellow-500 p-1.5 rounded-lg text-white">
             <TrendingUp size={20} />
           </div>
-          <span className="text-lg font-bold text-slate-800">GirviGold</span>
+          <span className="text-base font-bold text-slate-800">BALAJI PAWN BROKERS</span>
         </div>
         <div className="flex items-center space-x-2">
           <button 

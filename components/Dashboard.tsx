@@ -44,13 +44,12 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
       const end = closeDate ? new Date(closeDate) : new Date();
       const diffTime = Math.abs(end.getTime() - start.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      const months = diffDays / 30;
-      const totalMonths = Math.max(1, Math.round(months * 100) / 100); 
+      const totalMonths = Math.max(1, Math.ceil(diffDays / 30)); 
       return (amount * rate / 100) * totalMonths;
     };
 
     const settledInterestTotal = closedLoans.reduce((acc, curr) => {
-      return acc + calculateInterest(curr.amount, curr.interestRate, curr.date, curr.closeDate);
+      return acc + (curr.settledInterest !== undefined ? curr.settledInterest : calculateInterest(curr.amount, curr.interestRate, curr.date, curr.closeDate));
     }, 0);
 
     const totalInterestImpact = settledInterestTotal + liveInterestMonthly;
@@ -77,7 +76,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
 
     if (viewMode === 'Monthly') {
       // Monthly Data Calculation (Last 6 Months)
-      const monthlyDataMap = new Map<string, { label: string, inwards: number, outwards: number, interest: number, timestamp: number }>();
+      const monthlyDataMap = new Map<string, { label: string, principalOut: number, principalIn: number, interest: number, timestamp: number }>();
       
       const getMonthKey = (dateStr: string) => {
         const d = new Date(dateStr);
@@ -90,17 +89,17 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
       loans.forEach(loan => {
         const inKey = getMonthKey(loan.date);
         if (!monthlyDataMap.has(inKey.key)) {
-          monthlyDataMap.set(inKey.key, { label: inKey.key, inwards: 0, outwards: 0, interest: 0, timestamp: inKey.timestamp });
+          monthlyDataMap.set(inKey.key, { label: inKey.key, principalOut: 0, principalIn: 0, interest: 0, timestamp: inKey.timestamp });
         }
-        monthlyDataMap.get(inKey.key)!.inwards += 1;
+        monthlyDataMap.get(inKey.key)!.principalOut += loan.amount;
 
         if (loan.status === 'Closed' && loan.closeDate) {
           const outKey = getMonthKey(loan.closeDate);
           if (!monthlyDataMap.has(outKey.key)) {
-            monthlyDataMap.set(outKey.key, { label: outKey.key, inwards: 0, outwards: 0, interest: 0, timestamp: outKey.timestamp });
+            monthlyDataMap.set(outKey.key, { label: outKey.key, principalOut: 0, principalIn: 0, interest: 0, timestamp: outKey.timestamp });
           }
-          monthlyDataMap.get(outKey.key)!.outwards += 1;
-          monthlyDataMap.get(outKey.key)!.interest += calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate);
+          monthlyDataMap.get(outKey.key)!.principalIn += loan.amount;
+          monthlyDataMap.get(outKey.key)!.interest += loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate);
         }
       });
 
@@ -111,11 +110,11 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
       // Weekly Data Calculation for Selected Month
       const [year, month] = selectedMonth.split('-').map(Number);
       const weeklyData: any[] = [
-        { label: 'Week 1', inwards: 0, outwards: 0, interest: 0 },
-        { label: 'Week 2', inwards: 0, outwards: 0, interest: 0 },
-        { label: 'Week 3', inwards: 0, outwards: 0, interest: 0 },
-        { label: 'Week 4', inwards: 0, outwards: 0, interest: 0 },
-        { label: 'Week 5+', inwards: 0, outwards: 0, interest: 0 },
+        { label: 'Week 1', principalOut: 0, principalIn: 0, interest: 0 },
+        { label: 'Week 2', principalOut: 0, principalIn: 0, interest: 0 },
+        { label: 'Week 3', principalOut: 0, principalIn: 0, interest: 0 },
+        { label: 'Week 4', principalOut: 0, principalIn: 0, interest: 0 },
+        { label: 'Week 5+', principalOut: 0, principalIn: 0, interest: 0 },
       ];
 
       const getWeekIndex = (dateStr: string) => {
@@ -131,13 +130,13 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
 
       loans.forEach(loan => {
         const inWeek = getWeekIndex(loan.date);
-        if (inWeek !== -1) weeklyData[inWeek].inwards += 1;
+        if (inWeek !== -1) weeklyData[inWeek].principalOut += loan.amount;
 
         if (loan.status === 'Closed' && loan.closeDate) {
           const outWeek = getWeekIndex(loan.closeDate);
           if (outWeek !== -1) {
-            weeklyData[outWeek].outwards += 1;
-            weeklyData[outWeek].interest += calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate);
+            weeklyData[outWeek].principalIn += loan.amount;
+            weeklyData[outWeek].interest += loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate);
           }
         }
       });
@@ -307,11 +306,11 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
-              <span className="text-[10px] font-bold text-slate-500 uppercase">Inwards</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase">Principal Out</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-full bg-slate-800" />
-              <span className="text-[10px] font-bold text-slate-500 uppercase">Outwards</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase">Principal In</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
@@ -322,7 +321,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
 
         <div className="h-[300px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stats.chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+            <BarChart data={stats.chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
               <XAxis 
                 dataKey="label" 
@@ -335,13 +334,15 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
                 axisLine={false} 
                 tickLine={false} 
                 tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }}
+                tickFormatter={(value) => value >= 1000 ? `₹${(value / 1000).toFixed(0)}k` : `₹${value}`}
               />
               <Tooltip 
                 cursor={{ fill: '#f8fafc' }}
                 contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
+                formatter={(value: any) => [`₹${value.toLocaleString()}`, '']}
               />
-              <Bar dataKey="inwards" name="Inwards (New)" fill="#FACC15" radius={[4, 4, 0, 0]} barSize={viewMode === 'Monthly' ? 20 : 30} />
-              <Bar dataKey="outwards" name="Outwards (Paid)" fill="#1e293b" radius={[4, 4, 0, 0]} barSize={viewMode === 'Monthly' ? 20 : 30} />
+              <Bar dataKey="principalOut" name="Principal Out (New)" fill="#FACC15" radius={[4, 4, 0, 0]} barSize={viewMode === 'Monthly' ? 20 : 30} />
+              <Bar dataKey="principalIn" name="Principal In (Settled)" fill="#1e293b" radius={[4, 4, 0, 0]} barSize={viewMode === 'Monthly' ? 20 : 30} />
               <Bar dataKey="interest" name="Interest Received" fill="#22c55e" radius={[4, 4, 0, 0]} barSize={viewMode === 'Monthly' ? 20 : 30} />
             </BarChart>
           </ResponsiveContainer>

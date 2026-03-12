@@ -5,7 +5,7 @@ import { LoanEntry } from '../types';
 interface SettlementModalProps {
   loan: LoanEntry;
   onClose: () => void;
-  onConfirm: (id: string, date: string) => void;
+  onConfirm: (id: string, date: string, settledInterest: number) => void;
 }
 
 const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConfirm }) => {
@@ -16,13 +16,19 @@ const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConf
     const end = new Date(closeDate);
     const diffTime = Math.abs(end.getTime() - start.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    const months = diffDays / 30;
-    const totalMonths = Math.max(1, Math.round(months * 100) / 100); 
+    const totalMonths = Math.max(1, Math.ceil(diffDays / 30)); 
     return (amount * rate / 100) * totalMonths;
   };
 
-  const interest = calculateInterest(loan.amount, loan.interestRate, loan.date, settlementDate);
-  const total = loan.amount + interest;
+  const initialInterest = calculateInterest(loan.amount, loan.interestRate, loan.date, settlementDate);
+  const [settledInterest, setSettledInterest] = useState(initialInterest);
+
+  // Update interest when date changes
+  React.useEffect(() => {
+    setSettledInterest(calculateInterest(loan.amount, loan.interestRate, loan.date, settlementDate));
+  }, [settlementDate, loan.amount, loan.interestRate, loan.date]);
+
+  const total = loan.amount + Number(settledInterest);
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -59,7 +65,15 @@ const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConf
             </div>
             <div className="flex justify-between items-center">
               <span className="text-slate-500 text-sm">Interest ({loan.interestRate}% p.m.)</span>
-              <span className="font-bold text-green-600">+₹{interest.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400 text-xs">₹</span>
+                <input 
+                  type="number"
+                  value={settledInterest}
+                  onChange={(e) => setSettledInterest(Number(e.target.value))}
+                  className="w-24 px-2 py-1 bg-white border border-slate-200 rounded-lg text-right font-bold text-green-600 focus:ring-2 focus:ring-yellow-500 outline-none transition-all"
+                />
+              </div>
             </div>
             <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
               <span className="text-slate-800 font-bold">Total Payable</span>
@@ -78,7 +92,7 @@ const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConf
               Cancel
             </button>
             <button 
-              onClick={() => onConfirm(loan.id, settlementDate)}
+              onClick={() => onConfirm(loan.id, settlementDate, settledInterest)}
               className="flex-[2] px-4 py-3 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl shadow-lg shadow-yellow-100 flex items-center justify-center gap-2 transition-all active:scale-95"
             >
               <CheckCircle2 size={20} />
