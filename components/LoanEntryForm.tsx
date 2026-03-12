@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, User, MapPin, Phone, Scale, Info, MessageSquare, X, CheckCircle2, Calendar, Percent, Camera, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { Save, User, MapPin, Phone, Scale, Info, MessageSquare, X, CheckCircle2, Calendar, Percent, Camera, Image as ImageIcon, Trash2, CameraOff } from 'lucide-react';
 import { LoanEntry, MetalType } from '../types';
 
 interface LoanEntryFormProps {
@@ -34,66 +34,79 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (editingLoan) {
-      setFormData({
-        serialNumber: String(editingLoan.serialNumber),
-        date: editingLoan.date,
-        name: editingLoan.name,
-        guardian: editingLoan.guardian,
-        address: editingLoan.address,
-        contactNumber: editingLoan.contactNumber,
-        metalType: editingLoan.metalType,
-        description: editingLoan.description,
-        weight: editingLoan.weight,
-        netWeight: editingLoan.netWeight,
-        goldWeight: editingLoan.goldWeight || '',
-        goldNetWeight: editingLoan.goldNetWeight || '',
-        silverWeight: editingLoan.silverWeight || '',
-        silverNetWeight: editingLoan.silverNetWeight || '',
-        remark: editingLoan.remark,
-        amount: editingLoan.amount,
-        interestRate: editingLoan.interestRate,
-        status: editingLoan.status,
-        imageUrl: editingLoan.imageUrl || ''
-      });
-    } else {
-      setFormData(prev => ({ 
-        ...prev, 
-        serialNumber: String(nextSerial),
-        date: new Date().toISOString().split('T')[0],
-        interestRate: 3 
-      }));
-    }
-  }, [editingLoan, nextSerial]);
-
-  const handleMetalChange = (metal: MetalType) => {
-    let rate = 3;
-    if (metal === 'Silver') rate = 4;
-    if (metal === 'Both') rate = 3.5;
-    setFormData({ ...formData, metalType: metal, interestRate: rate });
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSave({
-      ...formData,
-      serialNumber: Number(formData.serialNumber),
-      weight: Number(formData.weight),
-      netWeight: Number(formData.netWeight),
-      goldWeight: formData.metalType === 'Both' ? Number(formData.goldWeight) : undefined,
-      goldNetWeight: formData.metalType === 'Both' ? Number(formData.goldNetWeight) : undefined,
-      silverWeight: formData.metalType === 'Both' ? Number(formData.silverWeight) : undefined,
-      silverNetWeight: formData.metalType === 'Both' ? Number(formData.silverNetWeight) : undefined,
-      amount: Number(formData.amount),
-      interestRate: Number(formData.interestRate),
-      status: formData.status,
-      imageUrl: formData.imageUrl || undefined
-    });
-  };
-
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [showCamera, setShowCamera] = useState(false);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [cameraPermission, setCameraPermission] = useState<'prompt' | 'granted' | 'denied'>('prompt');
+
+  const requestCameraPermission = async () => {
+    try {
+      setIsProcessingImage(true);
+      // Try to get a stream just to trigger the permission prompt
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      // If we got here, permission is granted. Stop the tracks immediately.
+      stream.getTracks().forEach(track => track.stop());
+      setCameraPermission('granted');
+      startCamera();
+    } catch (err) {
+      setCameraPermission('denied');
+      setIsProcessingImage(false);
+      alert("Camera permission was denied. Please enable it in your browser settings to use this feature.");
+    }
+  };
+
+  const startCamera = async () => {
+    try {
+      setIsProcessingImage(true);
+      const constraints = {
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        setShowCamera(true);
+        setCameraPermission('granted');
+      }
+      setIsProcessingImage(false);
+    } catch (err) {
+      setIsProcessingImage(false);
+      console.error("Camera error:", err);
+      alert("Could not access camera. Please ensure you have granted permission and no other app is using it.");
+    }
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setShowCamera(false);
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      
+      // Use video dimensions
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Compress
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+      setFormData({ ...formData, imageUrl: dataUrl });
+      
+      stopCamera();
+    }
+  };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -159,6 +172,64 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
   const removeImage = () => {
     setFormData({ ...formData, imageUrl: '' });
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  useEffect(() => {
+    if (editingLoan) {
+      setFormData({
+        serialNumber: String(editingLoan.serialNumber),
+        date: editingLoan.date,
+        name: editingLoan.name,
+        guardian: editingLoan.guardian,
+        address: editingLoan.address,
+        contactNumber: editingLoan.contactNumber,
+        metalType: editingLoan.metalType,
+        description: editingLoan.description,
+        weight: editingLoan.weight,
+        netWeight: editingLoan.netWeight,
+        goldWeight: editingLoan.goldWeight || '',
+        goldNetWeight: editingLoan.goldNetWeight || '',
+        silverWeight: editingLoan.silverWeight || '',
+        silverNetWeight: editingLoan.silverNetWeight || '',
+        remark: editingLoan.remark,
+        amount: editingLoan.amount,
+        interestRate: editingLoan.interestRate,
+        status: editingLoan.status,
+        imageUrl: editingLoan.imageUrl || ''
+      });
+    } else {
+      setFormData(prev => ({ 
+        ...prev, 
+        serialNumber: String(nextSerial),
+        date: new Date().toISOString().split('T')[0],
+        interestRate: 3 
+      }));
+    }
+  }, [editingLoan, nextSerial]);
+
+  const handleMetalChange = (metal: MetalType) => {
+    let rate = 3;
+    if (metal === 'Silver') rate = 4;
+    if (metal === 'Both') rate = 3.5;
+    setFormData({ ...formData, metalType: metal, interestRate: rate });
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave({
+      ...formData,
+      serialNumber: Number(formData.serialNumber),
+      weight: Number(formData.weight),
+      netWeight: Number(formData.netWeight),
+      goldWeight: formData.metalType === 'Both' ? Number(formData.goldWeight) : undefined,
+      goldNetWeight: formData.metalType === 'Both' ? Number(formData.goldNetWeight) : undefined,
+      silverWeight: formData.metalType === 'Both' ? Number(formData.silverWeight) : undefined,
+      silverNetWeight: formData.metalType === 'Both' ? Number(formData.silverNetWeight) : undefined,
+      amount: Number(formData.amount),
+      interestRate: Number(formData.interestRate),
+      status: formData.status,
+      imageUrl: formData.imageUrl || undefined
+    });
   };
 
   const inputClass = "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all outline-none text-base";
@@ -308,21 +379,32 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
                       Capture a clear photo of the ornament for visual verification and record keeping. 
                       Supports direct camera access or gallery upload.
                    </p>
-                   <div className="flex flex-wrap gap-3">
+                    <div className="flex flex-wrap gap-3">
                       <button 
                         type="button"
-                        disabled={isProcessingImage}
-                        onClick={() => fileInputRef.current?.click()}
-                        className={`flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-700 font-bold text-xs uppercase tracking-wider hover:bg-slate-50 transition-all shadow-sm active:scale-95 ${isProcessingImage ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        disabled={isProcessingImage || showCamera}
+                        onClick={cameraPermission === 'granted' ? startCamera : requestCameraPermission}
+                        className={`flex items-center gap-2 px-4 py-2.5 bg-yellow-500 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-yellow-600 transition-all shadow-md active:scale-95 ${(isProcessingImage || showCamera) ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
-                        <Camera size={16} className="text-yellow-500" />
-                        {isProcessingImage ? 'Processing...' : 'Capture / Upload Photo'}
+                        <Camera size={16} />
+                        {cameraPermission === 'granted' ? 'Live Camera' : 'Enable Camera'}
+                      </button>
+
+                      <button 
+                        type="button"
+                        disabled={isProcessingImage || showCamera}
+                        onClick={() => fileInputRef.current?.click()}
+                        className={`flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-700 font-bold text-xs uppercase tracking-wider hover:bg-slate-50 transition-all shadow-sm active:scale-95 ${(isProcessingImage || showCamera) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        <ImageIcon size={16} className="text-yellow-500" />
+                        {isProcessingImage ? 'Processing...' : 'Upload / Capture'}
                       </button>
                       <input 
                         type="file" 
                         ref={fileInputRef}
                         onChange={handleImageChange}
                         accept="image/*"
+                        capture="environment"
                         className="absolute inset-0 w-0 h-0 opacity-0 pointer-events-none"
                       />
                    </div>
@@ -330,6 +412,45 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
                 </div>
              </div>
           </div>
+
+          {/* Camera View Overlay */}
+          {showCamera && (
+            <div className="fixed inset-0 bg-black z-[100] flex flex-col">
+              <div className="flex justify-between items-center p-4 text-white">
+                <h3 className="font-bold uppercase tracking-widest text-sm">Live Camera</h3>
+                <button onClick={stopCamera} className="p-2 bg-white/10 rounded-full">
+                  <X size={24} />
+                </button>
+              </div>
+              
+              <div className="flex-1 relative flex items-center justify-center overflow-hidden">
+                <video 
+                  ref={videoRef} 
+                  autoPlay 
+                  playsInline 
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              
+              <div className="p-8 flex justify-center items-center gap-8 bg-black/50 backdrop-blur-md">
+                <button 
+                  onClick={stopCamera}
+                  className="p-4 bg-white/10 text-white rounded-full"
+                >
+                  <CameraOff size={24} />
+                </button>
+                
+                <button 
+                  onClick={capturePhoto}
+                  className="w-20 h-20 bg-white rounded-full border-8 border-white/20 flex items-center justify-center active:scale-90 transition-transform"
+                >
+                  <div className="w-14 h-14 bg-yellow-500 rounded-full"></div>
+                </button>
+                
+                <div className="w-12"></div> {/* Spacer */}
+              </div>
+            </div>
+          )}
 
           {editingLoan && formData.status === 'Closed' && (
             <div className="bg-red-600 rounded-2xl p-4 md:p-6 text-white flex items-center justify-between">

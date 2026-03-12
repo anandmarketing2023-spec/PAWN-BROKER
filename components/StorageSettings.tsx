@@ -107,7 +107,8 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
 
   const handleShare = async () => {
     const dataStr = JSON.stringify(loans, null, 2);
-    const file = new File([dataStr], `balaji_ledger_${new Date().toISOString().split('T')[0]}.json`, { type: 'application/json' });
+    // Using .json extension but text/plain mime type for better Android compatibility
+    const file = new File([dataStr], `balaji_ledger_${new Date().toISOString().split('T')[0]}.json`, { type: 'text/plain' });
     
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
@@ -118,11 +119,27 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
         });
       } catch (err) {
         if ((err as Error).name !== 'AbortError') {
-          alert('Sharing failed');
+          // Fallback to sharing as text if file sharing fails
+          try {
+            await navigator.share({
+              title: 'Balaji Ledger Backup',
+              text: dataStr
+            });
+          } catch (innerErr) {
+            alert('Sharing failed. Please use the "Download Backup File" button instead.');
+          }
         }
       }
     } else {
-      alert('Sharing is not supported on this browser/device. Use Export instead.');
+      // Fallback for browsers that support sharing text but not files
+      try {
+        await navigator.share({
+          title: 'Balaji Ledger Backup',
+          text: dataStr
+        });
+      } catch (err) {
+        alert('Sharing is not supported on this browser/device. Use Export instead.');
+      }
     }
   };
 
