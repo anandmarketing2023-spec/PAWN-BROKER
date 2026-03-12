@@ -92,19 +92,37 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
   const capturePhoto = () => {
     if (videoRef.current) {
       const video = videoRef.current;
+      
+      // Ensure video is ready and has dimensions
+      if (video.readyState < 2 || video.videoWidth === 0) {
+        alert("Camera is still warming up. Please wait a second and try again.");
+        return;
+      }
+
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d');
       
       // Use video dimensions
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-      context?.drawImage(video, 0, 0, canvas.width, canvas.height);
       
-      // Compress
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-      setFormData({ ...formData, imageUrl: dataUrl });
-      
-      stopCamera();
+      if (context) {
+        // Draw the current frame
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Add a small flash effect in the UI (handled by state)
+        setIsProcessingImage(true);
+        
+        // Compress and set image
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        setFormData(prev => ({ ...prev, imageUrl: dataUrl }));
+        
+        // Small delay for visual feedback before closing
+        setTimeout(() => {
+          setIsProcessingImage(false);
+          stopCamera();
+        }, 300);
+      }
     }
   };
 
@@ -153,7 +171,7 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
             return;
           }
           
-          setFormData({ ...formData, imageUrl: compressedBase64 });
+          setFormData(prev => ({ ...prev, imageUrl: compressedBase64 }));
           setIsProcessingImage(false);
         };
         img.onerror = () => {
@@ -380,15 +398,17 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
                       Supports direct camera access or gallery upload.
                    </p>
                     <div className="flex flex-wrap gap-3">
-                      <button 
-                        type="button"
-                        disabled={isProcessingImage || showCamera}
-                        onClick={cameraPermission === 'granted' ? startCamera : requestCameraPermission}
-                        className={`flex items-center gap-2 px-4 py-2.5 bg-yellow-500 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-yellow-600 transition-all shadow-md active:scale-95 ${(isProcessingImage || showCamera) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      >
-                        <Camera size={16} />
-                        {cameraPermission === 'granted' ? 'Live Camera' : 'Enable Camera'}
-                      </button>
+                      {typeof navigator !== 'undefined' && navigator.mediaDevices && (
+                        <button 
+                          type="button"
+                          disabled={isProcessingImage || showCamera}
+                          onClick={cameraPermission === 'granted' ? startCamera : requestCameraPermission}
+                          className={`flex items-center gap-2 px-4 py-2.5 bg-yellow-500 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-yellow-600 transition-all shadow-md active:scale-95 ${(isProcessingImage || showCamera) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <Camera size={16} />
+                          {cameraPermission === 'granted' ? 'Live Camera' : 'Enable Camera'}
+                        </button>
+                      )}
 
                       <button 
                         type="button"
@@ -423,13 +443,24 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
                 </button>
               </div>
               
-              <div className="flex-1 relative flex items-center justify-center overflow-hidden">
+              <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-slate-900">
+                {isProcessingImage && !videoRef.current?.srcObject && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-slate-900">
+                    <div className="w-12 h-12 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p className="text-white text-xs font-bold uppercase tracking-widest">Starting Camera...</p>
+                  </div>
+                )}
                 <video 
                   ref={videoRef} 
                   autoPlay 
                   playsInline 
-                  className="w-full h-full object-cover"
+                  muted
+                  onPlay={() => setIsProcessingImage(false)}
+                  className={`w-full h-full object-cover transition-opacity duration-300 ${isProcessingImage ? 'opacity-50' : 'opacity-100'}`}
                 />
+                {isProcessingImage && (
+                  <div className="absolute inset-0 bg-white animate-pulse opacity-30 pointer-events-none"></div>
+                )}
               </div>
               
               <div className="p-8 flex justify-center items-center gap-8 bg-black/50 backdrop-blur-md">
@@ -442,9 +473,12 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
                 
                 <button 
                   onClick={capturePhoto}
-                  className="w-20 h-20 bg-white rounded-full border-8 border-white/20 flex items-center justify-center active:scale-90 transition-transform"
+                  className="group flex flex-col items-center gap-3"
                 >
-                  <div className="w-14 h-14 bg-yellow-500 rounded-full"></div>
+                  <div className="w-20 h-20 bg-white rounded-full border-8 border-white/20 flex items-center justify-center active:scale-90 transition-transform shadow-2xl">
+                    <div className="w-14 h-14 bg-yellow-500 rounded-full"></div>
+                  </div>
+                  <span className="text-white text-[10px] font-black uppercase tracking-[0.2em] drop-shadow-md">Click to Capture</span>
                 </button>
                 
                 <div className="w-12"></div> {/* Spacer */}

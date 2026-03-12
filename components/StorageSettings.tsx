@@ -12,7 +12,8 @@ import {
   CheckCircle,
   Trash2,
   RotateCcw,
-  AlertTriangle
+  AlertTriangle,
+  FileText
 } from 'lucide-react';
 import { LoanEntry, BackupConfig, BackupEntry } from '../types';
 import BackupManager from './BackupManager';
@@ -92,6 +93,52 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
     linkElement.setAttribute('href', dataUri);
     linkElement.setAttribute('download', exportFileDefaultName);
     linkElement.click();
+  };
+
+  const handleExportCSV = () => {
+    if (loans.length === 0) {
+      alert('No data to export');
+      return;
+    }
+
+    // Define headers
+    const headers = [
+      'Serial Number', 'Date', 'Name', 'Guardian', 'Address', 'Contact', 
+      'Metal', 'Description', 'Weight', 'Net Weight', 'Amount', 'Interest Rate', 'Status', 'Remark'
+    ];
+
+    // Convert loans to CSV rows
+    const rows = loans.map(loan => [
+      loan.serialNumber,
+      loan.date,
+      `"${loan.name.replace(/"/g, '""')}"`,
+      `"${loan.guardian.replace(/"/g, '""')}"`,
+      `"${loan.address.replace(/"/g, '""')}"`,
+      `"${loan.contactNumber.replace(/"/g, '""')}"`,
+      loan.metalType,
+      `"${loan.description.replace(/"/g, '""')}"`,
+      loan.weight,
+      loan.netWeight,
+      loan.amount,
+      loan.interestRate,
+      loan.status,
+      `"${(loan.remark || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `balaji_ledger_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleCopyToClipboard = async () => {
@@ -272,27 +319,41 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
               className="w-full flex items-center justify-center space-x-3 bg-slate-800 hover:bg-slate-900 text-white py-4 rounded-xl transition-all font-bold shadow-lg shadow-slate-200"
             >
               <Download size={20} />
-              <span>Download Backup File</span>
+              <div className="text-left">
+                <div className="text-sm">Download JSON Backup</div>
+                <div className="text-[10px] opacity-70 font-normal">Best for app restoration</div>
+              </div>
+            </button>
+
+            <button 
+              onClick={handleExportCSV}
+              className="w-full flex items-center justify-center space-x-3 bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-xl transition-all font-bold shadow-lg shadow-emerald-100"
+            >
+              <FileText size={20} />
+              <div className="text-left">
+                <div className="text-sm">Download CSV (Excel)</div>
+                <div className="text-[10px] opacity-70 font-normal">Best for viewing on mobile</div>
+              </div>
             </button>
             
             <div className="grid grid-cols-2 gap-3">
               <button 
                 onClick={handleShare}
-                className="flex items-center justify-center space-x-2 bg-blue-50 hover:bg-blue-100 text-blue-700 py-3 rounded-xl transition-all font-bold text-xs"
+                className="flex flex-col items-center justify-center space-y-1 bg-blue-50 hover:bg-blue-100 text-blue-700 py-3 rounded-xl transition-all font-bold"
               >
-                <Share2 size={16} />
-                <span>Share</span>
+                <Share2 size={18} />
+                <span className="text-[10px] uppercase tracking-wider">Mobile Share</span>
               </button>
               <button 
                 onClick={handleCopyToClipboard}
-                className={`flex items-center justify-center space-x-2 py-3 rounded-xl transition-all font-bold text-xs border ${
+                className={`flex flex-col items-center justify-center space-y-1 py-3 rounded-xl transition-all font-bold border ${
                   copySuccess 
                   ? 'bg-green-50 border-green-200 text-green-600' 
                   : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
                 }`}
               >
-                {copySuccess ? <CheckCircle size={16} /> : <Copy size={16} />}
-                <span>{copySuccess ? 'Copied' : 'Copy'}</span>
+                {copySuccess ? <CheckCircle size={18} /> : <Copy size={18} />}
+                <span className="text-[10px] uppercase tracking-wider">{copySuccess ? 'Copied' : 'Copy Data'}</span>
               </button>
             </div>
           </div>
@@ -311,23 +372,29 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
               className="w-full flex items-center justify-center space-x-3 bg-yellow-500 hover:bg-yellow-600 text-white py-4 rounded-xl transition-all font-bold shadow-lg shadow-yellow-100"
             >
               <Upload size={20} />
-              <span>Upload Backup File</span>
+              <div className="text-left">
+                <div className="text-sm">Upload Backup File</div>
+                <div className="text-[10px] opacity-90 font-normal">Select .json or .txt file</div>
+              </div>
             </button>
 
             <button 
               onClick={handlePasteImport}
               disabled={isPasting}
-              className="w-full flex items-center justify-center space-x-2 bg-slate-50 hover:bg-slate-100 text-slate-600 py-3 rounded-xl transition-all font-bold text-xs border border-slate-200"
+              className="w-full flex items-center justify-center space-x-3 bg-slate-50 hover:bg-slate-100 text-slate-600 py-4 rounded-xl transition-all font-bold border border-slate-200"
             >
-              <Upload size={16} />
-              <span>{isPasting ? 'Reading...' : 'Paste from Clipboard'}</span>
+              <Copy size={18} />
+              <div className="text-left">
+                <div className="text-sm">{isPasting ? 'Reading...' : 'Paste from Clipboard'}</div>
+                <div className="text-[10px] opacity-70 font-normal">Paste copied backup text</div>
+              </div>
             </button>
             
             <input 
               type="file" 
               ref={fileInputRef} 
               onChange={handleImport} 
-              accept=".json" 
+              accept=".json,.txt" 
               className="hidden" 
             />
           </div>
