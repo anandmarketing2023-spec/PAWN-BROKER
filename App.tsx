@@ -17,6 +17,8 @@ import Ledger from './components/Ledger';
 import CustomerSheet from './components/CustomerSheet';
 import StorageSettings from './components/StorageSettings';
 import SettlementModal from './components/SettlementModal';
+import Modal from './components/Modal';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'entry' | 'ledger' | 'customers' | 'storage'>('dashboard');
@@ -26,6 +28,25 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editingLoan, setEditingLoan] = useState<LoanEntry | null>(null);
   const [settlingLoan, setSettlingLoan] = useState<LoanEntry | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Modal State
+  const [modalConfig, setModalConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: 'info' | 'warning' | 'success' | 'confirm';
+    onConfirm?: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info'
+  });
+
+  const showModal = (title: string, message: string, type: 'info' | 'warning' | 'success' | 'confirm' = 'info', onConfirm?: () => void) => {
+    setModalConfig({ isOpen: true, title, message, type, onConfirm });
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem('girvi_loans');
@@ -54,6 +75,13 @@ const App: React.FC = () => {
         console.error("Failed to parse backups", e);
       }
     }
+
+    // Simulate initial load for professional feel
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 1200);
+
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -139,9 +167,14 @@ const App: React.FC = () => {
   };
 
   const deleteLoan = (id: string) => {
-    if (window.confirm("Are you sure you want to delete this record? It will be moved to the trash and can be recovered later.")) {
-      setLoans(loans.map(l => l.id === id ? { ...l, isDeleted: true } : l));
-    }
+    showModal(
+      "Confirm Deletion",
+      "Are you sure you want to delete this record? It will be moved to the trash and can be recovered later.",
+      "warning",
+      () => {
+        setLoans(loans.map(l => l.id === id ? { ...l, isDeleted: true } : l));
+      }
+    );
   };
 
   const closeLoan = (id: string, customDate?: string, settledInterest?: number) => {
@@ -149,9 +182,14 @@ const App: React.FC = () => {
     if (!loan) return;
     
     if (loan.status === 'Closed') {
-      if (window.confirm("Re-open as UNPAID?")) {
-        setLoans(loans.map(l => l.id === id ? { ...l, status: 'Active', closeDate: undefined, settledInterest: undefined } : l));
-      }
+      showModal(
+        "Re-open Account",
+        "Do you want to re-open this account as UNPAID?",
+        "confirm",
+        () => {
+          setLoans(loans.map(l => l.id === id ? { ...l, status: 'Active', closeDate: undefined, settledInterest: undefined } : l));
+        }
+      );
     } else {
       if (customDate) {
         setLoans(loans.map(l => l.id === id ? { ...l, status: 'Closed', closeDate: customDate, settledInterest } : l));
@@ -193,8 +231,31 @@ const App: React.FC = () => {
     </button>
   );
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6">
+        <div className="relative">
+          <div className="w-24 h-24 border-4 border-yellow-500/20 border-t-yellow-500 rounded-full animate-spin"></div>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-12 h-12 bg-yellow-500 rounded-2xl rotate-45 flex items-center justify-center shadow-lg shadow-yellow-500/20">
+              <Coins className="text-slate-900 -rotate-45" size={24} />
+            </div>
+          </div>
+        </div>
+        <div className="mt-8 text-center">
+          <h1 className="text-2xl font-black text-white tracking-tighter uppercase italic">Balaji Ledger</h1>
+          <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.3em] mt-2">Secure Digital Girvi</p>
+        </div>
+        <div className="absolute bottom-10 text-slate-600 text-[10px] font-bold uppercase tracking-widest">
+          Loading your records...
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row pb-20 md:pb-0">
+    <ErrorBoundary>
+      <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row pb-20 md:pb-0">
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-64 bg-white border-r border-slate-200 p-6 sticky top-0 h-screen">
         <div className="flex items-center space-x-3 mb-10 px-2">
@@ -288,10 +349,15 @@ const App: React.FC = () => {
               onBackupConfigChange={setBackupConfig}
               backups={backups}
               onRestoreBackup={(data) => {
-                if (window.confirm("Restore this backup? Current data will be replaced.")) {
-                  setLoans(data);
-                  alert("Backup restored successfully!");
-                }
+                showModal(
+                  "Restore Backup",
+                  "Are you sure you want to restore this backup? Your current data will be replaced.",
+                  "warning",
+                  () => {
+                    setLoans(data);
+                    showModal("Success", "Backup restored successfully!", "success");
+                  }
+                );
               }}
               onDeleteBackup={(id) => {
                 setBackups(backups.filter(b => b.id !== id));
@@ -305,7 +371,7 @@ const App: React.FC = () => {
                   data: loans
                 };
                 setBackups([newBackup, ...backups].slice(0, 10));
-                alert("Manual backup created!");
+                showModal("Backup Created", "Manual backup created successfully!", "success");
               }}
             />
           )}
@@ -318,6 +384,15 @@ const App: React.FC = () => {
             onConfirm={closeLoan} 
           />
         )}
+
+        <Modal 
+          isOpen={modalConfig.isOpen}
+          onClose={() => setModalConfig(prev => ({ ...prev, isOpen: false }))}
+          title={modalConfig.title}
+          message={modalConfig.message}
+          type={modalConfig.type}
+          onConfirm={modalConfig.onConfirm}
+        />
       </main>
 
       {/* Mobile Bottom Navigation */}
@@ -336,6 +411,7 @@ const App: React.FC = () => {
         <BottomNavItem id="storage" icon={Settings} label="Storage" />
       </nav>
     </div>
+    </ErrorBoundary>
   );
 };
 

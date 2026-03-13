@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, User, MapPin, Phone, Scale, Info, MessageSquare, X, CheckCircle2, Calendar, Percent, Camera, Image as ImageIcon, Trash2, CameraOff } from 'lucide-react';
+import { Save, User, MapPin, Phone, Scale, Info, MessageSquare, X, CheckCircle2, Calendar, Percent, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { LoanEntry, MetalType } from '../types';
+import Modal from './Modal';
 
 interface LoanEntryFormProps {
   onSave: (loan: Omit<LoanEntry, 'id' | 'status'> & { status: 'Active' | 'Closed' }) => void;
@@ -34,96 +35,24 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [showCamera, setShowCamera] = useState(false);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
-  const [cameraPermission, setCameraPermission] = useState<'prompt' | 'granted' | 'denied'>('prompt');
 
-  const requestCameraPermission = async () => {
-    try {
-      setIsProcessingImage(true);
-      // Try to get a stream just to trigger the permission prompt
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      // If we got here, permission is granted. Stop the tracks immediately.
-      stream.getTracks().forEach(track => track.stop());
-      setCameraPermission('granted');
-      startCamera();
-    } catch (err) {
-      setCameraPermission('denied');
-      setIsProcessingImage(false);
-      alert("Camera permission was denied. Please enable it in your browser settings to use this feature.");
-    }
-  };
+  // Modal State
+  const [modalConfig, setModalConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: 'info' | 'warning' | 'success' | 'confirm';
+    onConfirm?: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info'
+  });
 
-  const startCamera = async () => {
-    try {
-      setIsProcessingImage(true);
-      const constraints = {
-        video: { 
-          facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
-      };
-      
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setShowCamera(true);
-        setCameraPermission('granted');
-      }
-      setIsProcessingImage(false);
-    } catch (err) {
-      setIsProcessingImage(false);
-      console.error("Camera error:", err);
-      alert("Could not access camera. Please ensure you have granted permission and no other app is using it.");
-    }
-  };
-
-  const stopCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
-      videoRef.current.srcObject = null;
-    }
-    setShowCamera(false);
-  };
-
-  const capturePhoto = () => {
-    if (videoRef.current) {
-      const video = videoRef.current;
-      
-      // Ensure video is ready and has dimensions
-      if (video.readyState < 2 || video.videoWidth === 0) {
-        alert("Camera is still warming up. Please wait a second and try again.");
-        return;
-      }
-
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      
-      // Use video dimensions
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
-      if (context) {
-        // Draw the current frame
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        // Add a small flash effect in the UI (handled by state)
-        setIsProcessingImage(true);
-        
-        // Compress and set image
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-        setFormData(prev => ({ ...prev, imageUrl: dataUrl }));
-        
-        // Small delay for visual feedback before closing
-        setTimeout(() => {
-          setIsProcessingImage(false);
-          stopCamera();
-        }, 300);
-      }
-    }
+  const showModal = (title: string, message: string, type: 'info' | 'warning' | 'success' | 'confirm' = 'info', onConfirm?: () => void) => {
+    setModalConfig({ isOpen: true, title, message, type, onConfirm });
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -166,7 +95,7 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
           
           // Final check on size (should be well under 2MB now)
           if (compressedBase64.length > 1.5 * 1024 * 1024) {
-            alert("Image is still too large. Please try a different photo.");
+            showModal("Image Too Large", "The selected image is too large even after compression. Please try a different photo.", "warning");
             setIsProcessingImage(false);
             return;
           }
@@ -175,12 +104,12 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
           setIsProcessingImage(false);
         };
         img.onerror = () => {
-          alert("Failed to process image. Please try again.");
+          showModal("Error", "Failed to process image. Please try again.", "warning");
           setIsProcessingImage(false);
         };
       };
       reader.onerror = () => {
-        alert("Failed to read file. Please try again.");
+        showModal("Error", "Failed to read file. Please try again.", "warning");
         setIsProcessingImage(false);
       };
       reader.readAsDataURL(file);
@@ -392,32 +321,20 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
                    )}
                 </div>
                 
-                <div className="flex-1 space-y-3 w-full">
+                 <div className="flex-1 space-y-3 w-full">
                    <p className="text-xs text-slate-500 leading-relaxed">
                       Capture a clear photo of the ornament for visual verification and record keeping. 
-                      Supports direct camera access or gallery upload.
+                      Supports direct camera capture or gallery upload.
                    </p>
                     <div className="flex flex-wrap gap-3">
-                      {typeof navigator !== 'undefined' && navigator.mediaDevices && (
-                        <button 
-                          type="button"
-                          disabled={isProcessingImage || showCamera}
-                          onClick={cameraPermission === 'granted' ? startCamera : requestCameraPermission}
-                          className={`flex items-center gap-2 px-4 py-2.5 bg-yellow-500 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-yellow-600 transition-all shadow-md active:scale-95 ${(isProcessingImage || showCamera) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        >
-                          <Camera size={16} />
-                          {cameraPermission === 'granted' ? 'Live Camera' : 'Enable Camera'}
-                        </button>
-                      )}
-
                       <button 
                         type="button"
-                        disabled={isProcessingImage || showCamera}
+                        disabled={isProcessingImage}
                         onClick={() => fileInputRef.current?.click()}
-                        className={`flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-700 font-bold text-xs uppercase tracking-wider hover:bg-slate-50 transition-all shadow-sm active:scale-95 ${(isProcessingImage || showCamera) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        className={`flex items-center gap-2 px-4 py-2.5 bg-yellow-500 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-yellow-600 transition-all shadow-md active:scale-95 ${isProcessingImage ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
-                        <ImageIcon size={16} className="text-yellow-500" />
-                        {isProcessingImage ? 'Processing...' : 'Upload / Capture'}
+                        <ImageIcon size={16} />
+                        {isProcessingImage ? 'Processing...' : 'Capture or Upload'}
                       </button>
                       <input 
                         type="file" 
@@ -432,59 +349,6 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
                 </div>
              </div>
           </div>
-
-          {/* Camera View Overlay */}
-          {showCamera && (
-            <div className="fixed inset-0 bg-black z-[100] flex flex-col">
-              <div className="flex justify-between items-center p-4 text-white">
-                <h3 className="font-bold uppercase tracking-widest text-sm">Live Camera</h3>
-                <button onClick={stopCamera} className="p-2 bg-white/10 rounded-full">
-                  <X size={24} />
-                </button>
-              </div>
-              
-              <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-slate-900">
-                {isProcessingImage && !videoRef.current?.srcObject && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-slate-900">
-                    <div className="w-12 h-12 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-                    <p className="text-white text-xs font-bold uppercase tracking-widest">Starting Camera...</p>
-                  </div>
-                )}
-                <video 
-                  ref={videoRef} 
-                  autoPlay 
-                  playsInline 
-                  muted
-                  onPlay={() => setIsProcessingImage(false)}
-                  className={`w-full h-full object-cover transition-opacity duration-300 ${isProcessingImage ? 'opacity-50' : 'opacity-100'}`}
-                />
-                {isProcessingImage && (
-                  <div className="absolute inset-0 bg-white animate-pulse opacity-30 pointer-events-none"></div>
-                )}
-              </div>
-              
-              <div className="p-8 flex justify-center items-center gap-8 bg-black/50 backdrop-blur-md">
-                <button 
-                  onClick={stopCamera}
-                  className="p-4 bg-white/10 text-white rounded-full"
-                >
-                  <CameraOff size={24} />
-                </button>
-                
-                <button 
-                  onClick={capturePhoto}
-                  className="group flex flex-col items-center gap-3"
-                >
-                  <div className="w-20 h-20 bg-white rounded-full border-8 border-white/20 flex items-center justify-center active:scale-90 transition-transform shadow-2xl">
-                    <div className="w-14 h-14 bg-yellow-500 rounded-full"></div>
-                  </div>
-                  <span className="text-white text-[10px] font-black uppercase tracking-[0.2em] drop-shadow-md">Click to Capture</span>
-                </button>
-                
-                <div className="w-12"></div> {/* Spacer */}
-              </div>
-            </div>
-          )}
 
           {editingLoan && formData.status === 'Closed' && (
             <div className="bg-red-600 rounded-2xl p-4 md:p-6 text-white flex items-center justify-between">
@@ -505,6 +369,15 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
           </button>
         </div>
       </form>
+
+      <Modal 
+        isOpen={modalConfig.isOpen}
+        onClose={() => setModalConfig(prev => ({ ...prev, isOpen: false }))}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        type={modalConfig.type}
+        onConfirm={modalConfig.onConfirm}
+      />
     </div>
   );
 };

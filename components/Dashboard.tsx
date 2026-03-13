@@ -203,10 +203,14 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
     <div className="space-y-6 md:space-y-8 animate-in fade-in duration-500 pb-4">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tight">Financial Health</h1>
+          <div className="flex items-center space-x-2 mb-1">
+            <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-[10px] font-black rounded uppercase tracking-widest">Premium Ledger</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}</span>
+          </div>
+          <h1 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tight">Welcome back, Admin</h1>
           <p className="text-sm text-slate-500">Live monitoring of active collateralized assets</p>
         </div>
-        <div className="bg-green-50 px-4 py-2 rounded-xl border border-green-100 flex items-center space-x-2 w-full md:w-auto">
+        <div className="bg-green-50 px-4 py-2 rounded-xl border border-green-100 flex items-center space-x-2 w-full md:w-auto shadow-sm">
           <CheckCircle className="text-green-500" size={18} />
           <span className="text-xs font-black text-green-700 uppercase">{stats.closedLoansCount} Settlements Paid</span>
         </div>
