@@ -24,7 +24,7 @@ const OrnamentCamera: React.FC<OrnamentCameraProps> = ({ imageUrl, onChange }) =
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
 
-  // ── Camera lifecycle ───────────────────────────────────────────────────────
+  // Camera lifecycle 
   const startCamera = useCallback(async (facing: 'environment' | 'user') => {
     setCameraError('');
     try {
@@ -70,7 +70,7 @@ const OrnamentCamera: React.FC<OrnamentCameraProps> = ({ imageUrl, onChange }) =
   // Stop camera when component unmounts
   useEffect(() => () => stopCamera(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Capture from camera ────────────────────────────────────────────────────
+  // Capture from camera 
   const capturePhoto = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
     setIsCapturing(true);
@@ -93,7 +93,7 @@ const OrnamentCamera: React.FC<OrnamentCameraProps> = ({ imageUrl, onChange }) =
     setIsCapturing(false);
   }, [onChange]);
 
-  // ── Gallery upload ─────────────────────────────────────────────────────────
+  // Gallery upload 
   const handleGalleryFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) return;
     setIsProcessing(true);
@@ -136,7 +136,7 @@ const OrnamentCamera: React.FC<OrnamentCameraProps> = ({ imageUrl, onChange }) =
     setTab('camera');
   };
 
-  // ── Tab buttons ────────────────────────────────────────────────────────────
+  // Tab buttons 
   const TabBtn = ({ id, icon: Icon, label }: { id: Tab; icon: React.ElementType; label: string }) => (
     <button
       type="button"
@@ -162,7 +162,7 @@ const OrnamentCamera: React.FC<OrnamentCameraProps> = ({ imageUrl, onChange }) =
         <TabBtn id="gallery" icon={ImageIcon} label="Gallery" />
       </div>
 
-      {/* ── PREVIEW TAB ── */}
+      {/*  PREVIEW TAB  */}
       {tab === 'preview' && imageUrl && (
         <div className="relative bg-slate-900">
           <img
@@ -205,7 +205,7 @@ const OrnamentCamera: React.FC<OrnamentCameraProps> = ({ imageUrl, onChange }) =
         </div>
       )}
 
-      {/* ── CAMERA TAB ── */}
+      {/*  CAMERA TAB  */}
       {tab === 'camera' && (
         <div className="relative bg-slate-900" style={{ minHeight: 260 }}>
           {cameraError ? (
@@ -292,7 +292,7 @@ const OrnamentCamera: React.FC<OrnamentCameraProps> = ({ imageUrl, onChange }) =
         </div>
       )}
 
-      {/* ── GALLERY TAB ── */}
+      {/*  GALLERY TAB  */}
       {tab === 'gallery' && (
         <div
           className="flex flex-col items-center justify-center gap-4 p-8 cursor-pointer"
