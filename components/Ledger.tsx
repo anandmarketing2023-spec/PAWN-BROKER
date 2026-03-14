@@ -1,482 +1,180 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import {
-  Search, Download, Filter, Trash2, Edit3, Calendar, Phone,
-  CheckCircle2, IndianRupee, Image as ImageIcon, X, MessageCircle, AlertTriangle
-} from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { X, Calendar, CheckCircle2, IndianRupee, Printer } from 'lucide-react';
 import { LoanEntry } from '../types';
-import { calculateInterest, formatINR, formatSerial, generateWhatsAppMessage } from '../utils';
+import { calculateInterest, formatINR, formatSerial } from '../utils';
 
-interface LedgerProps {
-  loans: LoanEntry[];
-  onDelete: (id: string) => void;
-  onEdit: (loan: LoanEntry) => void;
-  onUpdateStatus: (id: string, customDate?: string, settledInterest?: number) => void;
-  onAdjustDate: (loan: LoanEntry) => void;
+interface SettlementModalProps {
+  loan: LoanEntry;
+  onClose: () => void;
+  onConfirm: (id: string, date: string, settledInterest: number) => void;
 }
 
-type FilterStatus = 'All' | 'Active' | 'Closed' | 'Overdue';
+const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConfirm }) => {
+  const [settlementDate, setSettlementDate] = useState(new Date().toISOString().split('T')[0]);
+  const [settledInterest, setSettledInterest] = useState(0);
+  // Track whether the user has manually overridden the interest
+  const [interestOverridden, setInterestOverridden] = useState(false);
 
-const OVERDUE_MONTHS = 12;
+  // Re-calculate interest when date or loan changes (unless user has overridden)
+  useEffect(() => {
+    if (!interestOverridden) {
+      setSettledInterest(calculateInterest(loan.amount, loan.interestRate, loan.date, settlementDate));
+    }
+  }, [settlementDate, loan.amount, loan.interestRate, loan.date, interestOverridden]);
 
-const isOverdue = (loan: LoanEntry): boolean => {
-  if (loan.status !== 'Active') return false;
-  const start = new Date(loan.date);
-  const now = new Date();
-  const diffMonths = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
-  return diffMonths >= OVERDUE_MONTHS;
-};
+  // Reset override when loan changes (e.g., modal re-used for different loan)
+  useEffect(() => {
+    setInterestOverridden(false);
+    setSettledInterest(calculateInterest(loan.amount, loan.interestRate, loan.date, settlementDate));
+  }, [loan.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus, onAdjustDate }) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState<FilterStatus>('All');
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const handleInterestChange = (value: number) => {
+    setSettledInterest(value);
+    setInterestOverridden(true);
+  };
 
-  const filteredLoans = useMemo(() => {
-    return loans
-      .filter(loan => {
-        const matchesSearch =
-          loan.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          loan.contactNumber.includes(searchTerm) ||
-          loan.serialNumber.toString().includes(searchTerm) ||
-          loan.description.toLowerCase().includes(searchTerm.toLowerCase());
+  const handleDateChange = (date: string) => {
+    setSettlementDate(date);
+    setInterestOverridden(false); // Reset override on date change so it recalculates
+  };
 
-        const matchesFilter =
-          filterStatus === 'All' ? true :
-          filterStatus === 'Active' ? loan.status === 'Active' :
-          filterStatus === 'Closed' ? loan.status === 'Closed' :
-          filterStatus === 'Overdue' ? isOverdue(loan) :
-          true;
+  const total = loan.amount + Number(settledInterest);
 
-        return matchesSearch && matchesFilter;
-      })
-      .sort((a, b) => b.serialNumber - a.serialNumber);
-  }, [loans, searchTerm, filterStatus]);
+  const handlePrint = useCallback(() => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
 
-  // Summary counts for filter badges
-  const counts = useMemo(() => ({
-    All: loans.length,
-    Active: loans.filter(l => l.status === 'Active').length,
-    Closed: loans.filter(l => l.status === 'Closed').length,
-    Overdue: loans.filter(isOverdue).length,
-  }), [loans]);
-
-  const handleExportCSV = useCallback(() => {
-    if (filteredLoans.length === 0) return;
-
-    const headers = [
-      'S.No', 'Date', 'Name', 'Guardian', 'Contact', 'Address',
-      'Metal', 'Description', 'Weight', 'Net Weight',
-      'Amount', 'Interest Rate', 'Status', 'Close Date', 'Settled Interest'
-    ];
-    const rows = filteredLoans.map(l => [
-      l.serialNumber, l.date, l.name, l.guardian, l.contactNumber, l.address,
-      l.metalType, l.description, l.weight, l.netWeight,
-      l.amount, l.interestRate, l.status, l.closeDate || '', l.settledInterest || ''
-    ]);
-
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(r => r.map(f => `"${f}"`).join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `balaji_ledger_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-  }, [filteredLoans]);
-
-  const getInterest = useCallback((loan: LoanEntry): number => {
-    if (loan.status === 'Closed' && loan.settledInterest !== undefined) return loan.settledInterest;
-    return calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate);
-  }, []);
-
-  const handleWhatsApp = useCallback((loan: LoanEntry) => {
-    const interest = getInterest(loan);
-    const msg = generateWhatsAppMessage(loan.name, loan.serialNumber, loan.amount, interest, loan.date);
-    window.open(`https://wa.me/${loan.contactNumber.replace(/\D/g, '')}?text=${msg}`, '_blank');
-  }, [getInterest]);
-
-  const filterButtons: FilterStatus[] = ['All', 'Active', 'Closed', 'Overdue'];
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Settlement Receipt - ${loan.serialNumber}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; }
+            .header { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 30px; }
+            .header h1 { margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px; }
+            .header p { margin: 5px 0 0; color: #64748b; font-size: 12px; }
+            .details { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+            .label { font-size: 10px; font-weight: bold; color: #94a3b8; text-transform: uppercase; }
+            .value { font-size: 14px; font-weight: bold; margin-top: 4px; }
+            .financials { background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 30px; }
+            .row { display: flex; justify-content: space-between; margin-bottom: 10px; }
+            .row.total { border-top: 1px solid #e2e8f0; padding-top: 10px; margin-top: 10px; font-size: 18px; font-weight: bold; }
+            .sigs { margin-top: 80px; display: flex; justify-content: space-between; }
+            .sig { border-top: 1px solid #000; width: 150px; text-align: center; padding-top: 5px; font-size: 10px; }
+            .footer { text-align: center; font-size: 10px; color: #94a3b8; margin-top: 40px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>BALAJI PAWN BROKERS</h1>
+            <p>Settlement Receipt &bull; Serial No: ${formatSerial(loan.serialNumber)}</p>
+          </div>
+          <div class="details">
+            <div><div class="label">Customer Name</div><div class="value">${loan.name}</div></div>
+            <div><div class="label">Settlement Date</div><div class="value">${new Date(settlementDate).toLocaleDateString()}</div></div>
+            <div><div class="label">Item Description</div><div class="value">${loan.description} (${loan.metalType})</div></div>
+            <div><div class="label">Booking Date</div><div class="value">${new Date(loan.date).toLocaleDateString()}</div></div>
+          </div>
+          <div class="financials">
+            <div class="row"><span>Principal Amount</span><span>&#x20B9;${formatINR(loan.amount)}</span></div>
+            <div class="row"><span>Interest (${loan.interestRate}% p.m.)</span><span>&#x20B9;${formatINR(Number(settledInterest))}</span></div>
+            <div class="row total"><span>Total Paid</span><span>&#x20B9;${formatINR(total)}</span></div>
+          </div>
+          <div class="sigs">
+            <div class="sig">Customer Signature</div>
+            <div class="sig">Authorized Signatory</div>
+          </div>
+          <div class="footer">Thank you for your business. Computer generated receipt.</div>
+          <script>window.onload = () => { window.print(); window.close(); };<\/script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  }, [loan, settlementDate, settledInterest, total]);
 
   return (
-    <div className="animate-in fade-in duration-500">
-      <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-slate-800">Loan Ledger</h1>
-          <p className="text-sm text-slate-500">
-            {filteredLoans.length} of {loans.length} records
-            {counts.Overdue > 0 && (
-              <span className="ml-2 text-orange-600 font-bold">
-                • {counts.Overdue} overdue
-              </span>
-            )}
-          </p>
-        </div>
-        <button
-          onClick={handleExportCSV}
-          className="flex items-center justify-center space-x-2 bg-white px-4 py-2 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
-        >
-          <Download size={18} />
-          <span className="text-sm font-semibold">Export CSV</span>
-        </button>
-      </header>
-
-      {/* Search + Filter Bar */}
-      <div className="bg-white p-3 md:p-4 rounded-2xl border border-slate-100 shadow-sm mb-4 space-y-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
-          <input
-            type="text"
-            placeholder="Search name, serial, mobile, description..."
-            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-xl focus:ring-2 focus:ring-yellow-500 outline-none transition-all text-sm"
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-          />
-          {searchTerm && (
-            <button onClick={() => setSearchTerm('')} className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600">
-              <X size={16} />
-            </button>
-          )}
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="bg-yellow-500 p-6 text-white flex justify-between items-center">
+          <div>
+            <h2 className="text-xl font-bold">Settle Loan</h2>
+            <p className="text-yellow-100 text-xs mt-1">#{formatSerial(loan.serialNumber)} &bull; {loan.name}</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full transition-colors">
+            <X size={24} />
+          </button>
         </div>
 
-        {/* Status Filter Pills */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <Filter size={14} className="text-slate-400 shrink-0" />
-          {filterButtons.map(f => (
-            <button
-              key={f}
-              onClick={() => setFilterStatus(f)}
-              className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition-all border ${
-                filterStatus === f
-                  ? f === 'Overdue'
-                    ? 'bg-orange-500 text-white border-orange-500'
-                    : 'bg-yellow-500 text-white border-yellow-500'
-                  : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-              }`}
-            >
-              {f}
-              {counts[f] > 0 && (
-                <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] ${
-                  filterStatus === f ? 'bg-white/30' : 'bg-slate-100'
-                }`}>
-                  {counts[f]}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
+        <div className="p-6 space-y-6">
+          {/* Date Picker */}
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <Calendar size={14} /> Settlement Date
+            </label>
+            <input
+              type="date"
+              value={settlementDate}
+              onChange={e => handleDateChange(e.target.value)}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-yellow-500 outline-none transition-all font-medium"
+            />
+          </div>
 
-      {/* MOBILE CARD VIEW */}
-      <div className="grid grid-cols-1 gap-4 md:hidden">
-        {filteredLoans.map((loan) => {
-          const interest = getInterest(loan);
-          const overdue = isOverdue(loan);
-
-          return (
-            <div
-              key={loan.id}
-              className={`bg-white rounded-2xl border p-4 shadow-sm active:scale-[0.98] transition-transform ${
-                overdue ? 'border-orange-200 bg-orange-50/20' :
-                loan.status === 'Closed' ? 'border-red-100 bg-red-50/10' :
-                'border-slate-100'
-              }`}
-            >
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex items-center space-x-2">
-                  <span className="font-mono text-xs font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded">
-                    #{formatSerial(loan.serialNumber)}
-                  </span>
-                  {overdue && (
-                    <span className="flex items-center gap-1 text-[9px] font-black text-orange-600 bg-orange-50 px-2 py-0.5 rounded border border-orange-100">
-                      <AlertTriangle size={9} /> OVERDUE
-                    </span>
-                  )}
-                  {loan.status === 'Closed' && (
-                    <button
-                      onClick={() => onAdjustDate(loan)}
-                      className="flex flex-col items-center hover:bg-red-50 p-1 rounded transition-colors"
-                    >
-                      <span className="text-[9px] font-black text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100">PAID</span>
-                      {loan.closeDate && (
-                        <span className="text-[8px] text-slate-400 font-bold mt-0.5 underline decoration-dotted">
-                          {new Date(loan.closeDate).toLocaleDateString()}
-                        </span>
-                      )}
-                    </button>
-                  )}
-                </div>
-                <div className="flex items-center space-x-1">
-                  {loan.status === 'Active' && (
-                    <button
-                      onClick={() => handleWhatsApp(loan)}
-                      className="p-2 text-green-500 bg-green-50 rounded-lg"
-                      title="Send WhatsApp reminder"
-                    >
-                      <MessageCircle size={16} />
-                    </button>
-                  )}
-                  <button onClick={() => onEdit(loan)} className="p-2 text-slate-400 bg-slate-50 rounded-lg"><Edit3 size={16} /></button>
-                  <button onClick={() => onDelete(loan.id)} className="p-2 text-slate-400 bg-slate-50 rounded-lg"><Trash2 size={16} /></button>
-                </div>
-              </div>
-
-              <div className="mb-4 flex gap-4">
-                <div className="flex-1">
-                  <h3 className={`text-base font-bold ${loan.status === 'Closed' ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
-                    {loan.name}
-                  </h3>
-                  <div className="flex items-center text-xs text-slate-500 mt-1 space-x-3">
-                    <span className="flex items-center gap-1"><Phone size={12} />{loan.contactNumber}</span>
-                    <span className="flex items-center gap-1"><Calendar size={12} />{new Date(loan.date).toLocaleDateString()}</span>
-                  </div>
-                </div>
-                {loan.imageUrl && (
+          {/* Financial Summary */}
+          <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500 text-sm">Principal Amount</span>
+              <span className="font-bold text-slate-800">₹{formatINR(loan.amount)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500 text-sm">Interest ({loan.interestRate}% p.m.)</span>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400 text-xs">₹</span>
+                <input
+                  type="number"
+                  value={settledInterest}
+                  onChange={e => handleInterestChange(Number(e.target.value))}
+                  className="w-24 px-2 py-1 bg-white border border-slate-200 rounded-lg text-right font-bold text-green-600 focus:ring-2 focus:ring-yellow-500 outline-none transition-all"
+                />
+                {interestOverridden && (
                   <button
-                    onClick={() => setSelectedImage(loan.imageUrl!)}
-                    className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 shadow-sm active:scale-95 transition-transform"
+                    onClick={() => setInterestOverridden(false)}
+                    className="text-[9px] font-bold text-yellow-600 hover:underline"
+                    title="Reset to calculated value"
                   >
-                    <img src={loan.imageUrl} alt="Ornament" className="w-full h-full object-cover" />
+                    Reset
                   </button>
                 )}
               </div>
-
-              <div className="bg-slate-50/50 rounded-xl p-3 flex justify-between items-center">
-                <div>
-                  <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Financials</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-lg font-black text-slate-800">₹{formatINR(loan.amount)}</span>
-                    <span className="text-xs font-bold text-green-600">+₹{formatINR(interest)}</span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => onUpdateStatus(loan.id)}
-                  className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-md active:scale-90 ${
-                    loan.status === 'Active'
-                      ? 'bg-blue-500 text-white shadow-blue-200'
-                      : 'bg-red-600 text-white shadow-red-200'
-                  }`}
-                >
-                  <CheckCircle2 size={24} />
-                </button>
-              </div>
-
-              <div className="mt-3 flex items-center justify-between">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">{loan.description}</span>
-                <div className="flex flex-col items-end gap-1">
-                  <span className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase ${
-                    loan.metalType === 'Gold' ? 'bg-yellow-100 text-yellow-700' :
-                    loan.metalType === 'Silver' ? 'bg-slate-200 text-slate-700' :
-                    'bg-indigo-100 text-indigo-700'
-                  }`}>{loan.metalType}</span>
-                  {loan.metalType === 'Both' ? (
-                    <div className="flex flex-col text-[8px] font-bold text-slate-500 items-end">
-                      <span>G: {loan.goldNetWeight || loan.goldWeight}g</span>
-                      <span>S: {loan.silverNetWeight || loan.silverWeight}g</span>
-                    </div>
-                  ) : (
-                    <span className="text-[8px] font-bold text-slate-500">{loan.netWeight || loan.weight}g</span>
-                  )}
-                </div>
+            </div>
+            <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
+              <span className="text-slate-800 font-bold">Total Payable</span>
+              <div className="flex items-center text-xl font-black text-yellow-600">
+                <IndianRupee size={20} />
+                <span>{formatINR(total)}</span>
               </div>
             </div>
-          );
-        })}
-      </div>
+          </div>
 
-      {/* DESKTOP TABLE VIEW */}
-      <div className="hidden md:block bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden overflow-x-auto">
-        <table className="w-full text-left">
-          <thead className="bg-slate-50 border-b border-slate-100">
-            <tr>
-              <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">S.No</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Customer</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Item Details</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Principal</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Interest</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {filteredLoans.map((loan) => {
-              const interest = getInterest(loan);
-              const overdue = isOverdue(loan);
-
-              return (
-                <tr
-                  key={loan.id}
-                  className={`hover:bg-slate-50/50 transition-colors group ${
-                    overdue ? 'bg-orange-50/30' :
-                    loan.status === 'Closed' ? 'bg-red-50/10' : ''
-                  }`}
-                >
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col gap-1">
-                      <span className="font-mono text-sm font-bold text-slate-500">#{formatSerial(loan.serialNumber)}</span>
-                      {overdue && (
-                        <span className="flex items-center gap-1 text-[9px] font-black text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100 w-fit">
-                          <AlertTriangle size={9} /> Overdue
-                        </span>
-                      )}
-                      {loan.status === 'Closed' && (
-                        <button
-                          onClick={() => onAdjustDate(loan)}
-                          className="flex flex-col mt-0.5 hover:bg-red-50 p-1 rounded transition-colors text-left"
-                        >
-                          <span className="text-[10px] font-black text-red-600 uppercase">PAID</span>
-                          {loan.closeDate && (
-                            <span className="text-[9px] text-slate-400 font-bold underline decoration-dotted">
-                              {new Date(loan.closeDate).toLocaleDateString()}
-                            </span>
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <div className="flex items-center space-x-3">
-                      {loan.imageUrl ? (
-                        <button
-                          onClick={() => setSelectedImage(loan.imageUrl!)}
-                          className="w-10 h-10 rounded-lg overflow-hidden border border-slate-200 shadow-sm hover:scale-110 transition-transform shrink-0"
-                        >
-                          <img src={loan.imageUrl} alt="Ornament" className="w-full h-full object-cover" />
-                        </button>
-                      ) : (
-                        <div className="w-10 h-10 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-300 shrink-0">
-                          <ImageIcon size={16} />
-                        </div>
-                      )}
-                      <div className="flex flex-col min-w-0">
-                        <span className={`font-bold truncate ${loan.status === 'Closed' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
-                          {loan.name}
-                        </span>
-                        <div className="flex items-center gap-1 mt-0.5 text-xs text-slate-500">
-                          <Phone size={10} />{loan.contactNumber}
-                        </div>
-                        <div className="flex items-center gap-1 mt-0.5 text-[10px] text-slate-400 font-bold uppercase">
-                          <Calendar size={10} />{new Date(loan.date).toLocaleDateString()}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col">
-                      {loan.metalType === 'Both' ? (
-                        <div>
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs font-bold text-yellow-600">G: {loan.goldNetWeight || loan.goldWeight}g</span>
-                            <span className="text-xs font-bold text-slate-400">S: {loan.silverNetWeight || loan.silverWeight}g</span>
-                          </div>
-                          <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-indigo-100 text-indigo-700 w-fit mt-1">Both</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-bold text-slate-700">{loan.netWeight || loan.weight}g</span>
-                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
-                            loan.metalType === 'Gold' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-200 text-slate-700'
-                          }`}>{loan.metalType}</span>
-                        </div>
-                      )}
-                      <span className="text-xs text-slate-500 truncate max-w-[150px] mt-1">{loan.description}</span>
-                    </div>
-                  </td>
-
-                  <td className="px-6 py-4 text-right">
-                    <span className={`font-bold ${loan.status === 'Closed' ? 'text-slate-400' : 'text-slate-800'}`}>
-                      ₹{formatINR(loan.amount)}
-                    </span>
-                    <div className="text-[10px] text-slate-400">{loan.interestRate}% p.m.</div>
-                  </td>
-
-                  <td className="px-6 py-4 text-right">
-                    <span className={`text-sm font-bold ${loan.status === 'Closed' ? 'text-slate-400' : 'text-green-600'}`}>
-                      +₹{formatINR(interest)}
-                    </span>
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <div className="flex items-center justify-center space-x-1">
-                      <button
-                        onClick={() => onUpdateStatus(loan.id)}
-                        className={`p-2 rounded-full transition-all transform active:scale-90 shadow-sm border ${
-                          loan.status === 'Active'
-                            ? 'text-blue-500 bg-blue-50 border-blue-200 hover:bg-blue-100'
-                            : 'text-red-600 bg-red-100 border-red-200 hover:bg-red-200'
-                        }`}
-                        title={loan.status === 'Active' ? 'Mark as Paid' : 'Re-open'}
-                      >
-                        <CheckCircle2 size={22} />
-                      </button>
-                      <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {loan.status === 'Active' && (
-                          <button
-                            onClick={() => handleWhatsApp(loan)}
-                            className="p-1.5 text-green-500 hover:bg-green-50 rounded-lg"
-                            title="Send WhatsApp reminder"
-                          >
-                            <MessageCircle size={16} />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => onEdit(loan)}
-                          className="p-1.5 text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-lg"
-                          title="Edit"
-                        >
-                          <Edit3 size={16} />
-                        </button>
-                        <button
-                          onClick={() => onDelete(loan.id)}
-                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
-                          title="Delete"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {filteredLoans.length === 0 && (
-        <div className="py-20 text-center text-slate-400 italic bg-white rounded-2xl border border-dashed border-slate-200 mt-2">
-          {searchTerm || filterStatus !== 'All'
-            ? 'No records match your search or filter.'
-            : 'No records yet. Add your first entry!'
-          }
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={handlePrint}
+              className="px-4 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
+              title="Print Receipt"
+            >
+              <Printer size={20} />
+            </button>
+            <button
+              onClick={() => onConfirm(loan.id, settlementDate, settledInterest)}
+              className="flex-1 px-4 py-3 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl shadow-lg shadow-yellow-100 flex items-center justify-center gap-2 transition-all active:scale-95"
+            >
+              <CheckCircle2 size={20} />
+              Confirm Payment
+            </button>
+          </div>
         </div>
-      )}
-
-      {/* Image Lightbox */}
-      {selectedImage && (
-        <div
-          className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200"
-          onClick={() => setSelectedImage(null)}
-        >
-          <button
-            className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors"
-            onClick={() => setSelectedImage(null)}
-          >
-            <X size={32} />
-          </button>
-          <img
-            src={selectedImage}
-            alt="Full View"
-            className="max-w-full max-h-[90vh] rounded-2xl shadow-2xl object-contain animate-in zoom-in-95 duration-300"
-            onClick={e => e.stopPropagation()}
-          />
-        </div>
-      )}
+      </div>
     </div>
   );
 };
 
-export default Ledger;
-update Ledger.tsx
+export default SettlementModal;
