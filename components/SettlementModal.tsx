@@ -123,12 +123,12 @@ const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConf
           <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
             <div className="flex justify-between items-center">
               <span className="text-slate-500 text-sm">Principal Amount</span>
-              <span className="font-bold text-slate-800">₹{formatINR(loan.amount)}</span>
+              <span className="font-bold text-slate-800">{formatINR(loan.amount)}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-slate-500 text-sm">Interest ({loan.interestRate}% p.m.)</span>
               <div className="flex items-center gap-2">
-                <span className="text-slate-400 text-xs">₹</span>
+                <span className="text-slate-400 text-xs"></span>
                 <input
                   type="number"
                   value={settledInterest}
@@ -178,4 +178,3 @@ const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConf
 };
 
 export default SettlementModal;
-update SettlementModal.tsx
