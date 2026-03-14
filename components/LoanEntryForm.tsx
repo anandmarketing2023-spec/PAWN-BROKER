@@ -4,8 +4,8 @@ import { LoanEntry, MetalType } from '../types';
 import Modal from './Modal';
 import OrnamentCamera from './OrnamentCamera';
 
-// ── Prop types ────────────────────────────────────────────────────────────────
-// Fixed: removed contradictory Omit<…,'status'> & { status } pattern
+// Prop types 
+// Fixed: removed contradictory Omit<,'status'> & { status } pattern
 interface LoanEntryFormProps {
   onSave: (loan: Omit<LoanEntry, 'id' | 'isDeleted'>) => void;
   nextSerial: number;
@@ -107,7 +107,7 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({
     setModalConfig({ isOpen: true, title, message, type, onConfirm });
   }, []);
 
-  // ── Sync form when editingLoan changes ────────────────────────────────────
+  // Sync form when editingLoan changes 
   useEffect(() => {
     if (editingLoan) {
       setFormData(loanToForm(editingLoan));
@@ -123,7 +123,7 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({
     }
   }, [nextSerial, editingLoan]);
 
-  // ── Customer autofill ─────────────────────────────────────────────────────
+  // Customer autofill 
   const handleNameChange = (value: string) => {
     setFormData(prev => ({ ...prev, name: value }));
     if (value.length >= 2 && existingLoans.length > 0) {
@@ -155,13 +155,13 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({
     nameInputRef.current?.blur();
   };
 
-  // ── Metal type change ─────────────────────────────────────────────────────
+  // Metal type change 
   const handleMetalChange = (metal: MetalType) => {
     const rate = metal === 'Silver' ? '4' : metal === 'Both' ? '3.5' : '3';
     setFormData(prev => ({ ...prev, metalType: metal, interestRate: rate }));
   };
 
-  // ── Submit ────────────────────────────────────────────────────────────────
+  // Submit 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave({
@@ -347,7 +347,7 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({
                 </div>
               )}
               <div>
-                <label className={labelClass}>Principal (₹)</label>
+                <label className={labelClass}>Principal ()</label>
                 <input type="number" className={`${inputClass} font-bold text-lg`} value={formData.amount} onChange={set('amount')} required />
               </div>
               <div>
@@ -411,4 +411,3 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({
 };
 
 export default LoanEntryForm;
-update LoanEntryForm.tsx
