@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState } from 'react';
-import { Search, IndianRupee, Briefcase, ChevronRight, User, CheckCircle } from 'lucide-react';
+import { Search, IndianRupee, Briefcase, ChevronRight, User, CheckCircle, Share2 } from 'lucide-react';
 import { LoanEntry } from '../types';
 
 interface CustomerSheetProps {
@@ -96,6 +96,40 @@ const CustomerSheet: React.FC<CustomerSheetProps> = ({ loans }) => {
       .sort((a, b) => b.activePrincipal - a.activePrincipal || b.totalPrincipal - a.totalPrincipal);
   }, [loans, searchTerm]);
 
+  const handleShareSummary = async (customer: CustomerSummary) => {
+    const activeItems = customer.items.filter(i => i.isActive);
+    const text = `
+*BALAJI PAWN BROKERS*
+Customer Summary: ${customer.name}
+-----------------------
+Active Loans: ${customer.totalActiveLoans}
+Active Principal: ₹${customer.activePrincipal.toLocaleString()}
+Items:
+${activeItems.map(i => `- ${i.metalType}: ${i.totalWeight.toFixed(2)}g (${i.descriptions.join(", ")})`).join('\n')}
+-----------------------
+Contact: ${customer.contactNumber}
+Address: ${customer.address}
+-----------------------
+    `.trim();
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Summary - ${customer.name}`,
+          text: text
+        });
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          navigator.clipboard.writeText(text);
+          alert('Summary copied to clipboard!');
+        }
+      }
+    } else {
+      navigator.clipboard.writeText(text);
+      alert('Summary copied to clipboard!');
+    }
+  };
+
   return (
     <div className="animate-in fade-in duration-500">
       <header className="mb-8">
@@ -137,6 +171,13 @@ const CustomerSheet: React.FC<CustomerSheetProps> = ({ loans }) => {
                     <span>{customer.activePrincipal.toLocaleString()}</span>
                   </div>
                   <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Active Principal</p>
+                  <button 
+                    onClick={() => handleShareSummary(customer)}
+                    className="mt-2 ml-auto p-1.5 text-blue-500 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors flex items-center space-x-1"
+                  >
+                    <Share2 size={14} />
+                    <span className="text-[10px] font-bold uppercase">Share</span>
+                  </button>
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-3">

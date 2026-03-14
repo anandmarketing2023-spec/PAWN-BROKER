@@ -32,6 +32,8 @@ interface StorageSettingsProps {
   onRestoreBackup: (data: LoanEntry[]) => void;
   onDeleteBackup: (id: string) => void;
   onManualBackup: () => void;
+  onExport: () => void;
+  onFileImport: (file: File) => void;
 }
 
 const StorageSettings: React.FC<StorageSettingsProps> = ({ 
@@ -42,7 +44,9 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
   backups,
   onRestoreBackup,
   onDeleteBackup,
-  onManualBackup
+  onManualBackup,
+  onExport,
+  onFileImport
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [copySuccess, setCopySuccess] = useState(false);
@@ -190,40 +194,51 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
     }
   };
 
-  const handleShare = async () => {
-    const dataStr = JSON.stringify(loans, null, 2);
-    // Using .json extension but text/plain mime type for better Android compatibility
-    const file = new File([dataStr], `balaji_ledger_${new Date().toISOString().split('T')[0]}.json`, { type: 'text/plain' });
-    
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try {
+  const handleShare = async (textToShare?: string) => {
+    try {
+      if (textToShare) {
+        // Share specific text (like a transfer key)
+        if (navigator.share) {
+          await navigator.share({
+            title: 'Balaji Ledger Data',
+            text: textToShare
+          });
+        } else {
+          // Fallback to clipboard
+          await navigator.clipboard.writeText(textToShare);
+          setCopySuccess(true);
+          setTimeout(() => setCopySuccess(false), 2000);
+          showModal("Copied", "Sharing not supported on this device. Data copied to clipboard instead.", "success");
+        }
+        return;
+      }
+
+      // Default: Share entire database as file
+      const dataStr = JSON.stringify(loans, null, 2);
+      const file = new File([dataStr], `balaji_ledger_${new Date().toISOString().split('T')[0]}.json`, { type: 'text/plain' });
+      
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
           title: 'Balaji Ledger Backup',
           text: 'My Balaji Pawn Brokers Ledger Backup'
         });
-      } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
-          // Fallback to sharing as text if file sharing fails
-          try {
-            await navigator.share({
-              title: 'Balaji Ledger Backup',
-              text: dataStr
-            });
-          } catch (innerErr) {
-            showModal("Sharing Failed", "Sharing failed. Please use the 'Download Backup File' button instead.", "warning");
-          }
-        }
-      }
-    } else {
-      // Fallback for browsers that support sharing text but not files
-      try {
+      } else if (navigator.share) {
+        // Fallback to sharing as text if file sharing is not supported but text sharing is
         await navigator.share({
           title: 'Balaji Ledger Backup',
           text: dataStr
         });
-      } catch (err) {
-        showModal("Not Supported", "Sharing is not supported on this browser/device. Use Export instead.", "info");
+      } else {
+        throw new Error('Share not supported');
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        showModal(
+          "Sharing Not Supported", 
+          "Your device or browser doesn't support direct sharing from this app. Please use 'Download Backup File' instead.", 
+          "info"
+        );
       }
     }
   };
@@ -328,10 +343,25 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
 
   const generateTransferKey = () => {
     const dataStr = JSON.stringify(loans);
-    // Simple base64 encoding to make it look like a "key"
-    const key = btoa(unescape(encodeURIComponent(dataStr)));
-    setTransferKey(key);
-    setShowKey(true);
+    
+    // Check if data is too large for a key (base64 of large data with images will fail or be too big)
+    if (dataStr.length > 500000) { // ~500KB limit for "Key" mode
+      showModal(
+        "Data Too Large", 
+        "Your ledger contains high-resolution images and is too large for a 'Transfer Key'. Please use the 'Simple Backup' (Download File) method instead.", 
+        "info"
+      );
+      return;
+    }
+
+    try {
+      // Simple base64 encoding to make it look like a "key"
+      const key = btoa(unescape(encodeURIComponent(dataStr)));
+      setTransferKey(key);
+      setShowKey(true);
+    } catch (err) {
+      showModal("Error", "Failed to generate key. Data might be too large. Use File Backup instead.", "warning");
+    }
   };
 
   const handleKeyImport = () => {
@@ -477,7 +507,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
                     {copySuccess ? <CheckCircle size={14} className="text-green-500" /> : <Copy size={14} />}
                   </button>
                   <button 
-                    onClick={handleShare}
+                    onClick={() => handleShare(transferKey)}
                     className="p-2 bg-white border border-slate-200 rounded-lg text-slate-600 shadow-sm hover:bg-slate-50"
                   >
                     <Share2 size={14} />
@@ -515,28 +545,78 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Backup Card */}
+        {/* Simple Backup Card */}
+        <div className="bg-white border-2 border-yellow-500 rounded-3xl p-8 shadow-xl shadow-yellow-100 relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10">
+            <Download size={80} className="text-yellow-600" />
+          </div>
+          <div className="relative z-10">
+            <h3 className="text-xl font-black text-slate-800 mb-2 uppercase tracking-tight">Simple Backup</h3>
+            <p className="text-slate-500 text-sm mb-6 leading-relaxed">
+              Download a single file containing all your ledger records. Save this file to your Google Drive, Email, or WhatsApp to keep your data safe.
+            </p>
+            
+            <button 
+              onClick={onExport}
+              className="w-full flex items-center justify-center space-x-3 bg-yellow-500 hover:bg-yellow-600 active:scale-95 text-white py-5 rounded-2xl transition-all font-black shadow-lg shadow-yellow-200"
+            >
+              <Download size={24} />
+              <span className="uppercase tracking-widest">Download Backup File</span>
+            </button>
+            <p className="text-center mt-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              Recommended for daily safety
+            </p>
+          </div>
+        </div>
+
+        {/* Restore Card */}
+        <div className="bg-slate-900 rounded-3xl p-8 shadow-xl relative overflow-hidden text-white">
+          <div className="absolute top-0 right-0 p-4 opacity-10">
+            <Upload size={80} className="text-white" />
+          </div>
+          <div className="relative z-10">
+            <h3 className="text-xl font-black text-white mb-2 uppercase tracking-tight">Restore Backup</h3>
+            <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+              Upload your previously saved backup file to restore all your records. This will automatically read the file and update your ledger.
+            </p>
+            
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full flex items-center justify-center space-x-3 bg-white hover:bg-slate-100 active:scale-95 text-slate-900 py-5 rounded-2xl transition-all font-black shadow-lg"
+            >
+              <Upload size={24} />
+              <span className="uppercase tracking-widest">Select Backup File</span>
+            </button>
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onFileImport(file);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+              }} 
+              accept=".json" 
+              className="hidden" 
+            />
+            <p className="text-center mt-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+              Select the .json file you downloaded
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Other Formats Card */}
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <h3 className="font-bold text-slate-800 mb-6 flex items-center">
-            <Download size={18} className="mr-2 text-slate-400" />
-            Backup Data
+          <h3 className="font-bold text-slate-800 mb-4 flex items-center">
+            <FileText size={18} className="mr-2 text-slate-400" />
+            Other Export Formats
           </h3>
           
-          <div className="space-y-3">
-            <button 
-              onClick={handleExport}
-              className="w-full flex items-center justify-center space-x-3 bg-slate-800 hover:bg-slate-900 text-white py-4 rounded-xl transition-all font-bold shadow-lg shadow-slate-200"
-            >
-              <Download size={20} />
-              <div className="text-left">
-                <div className="text-sm">Download JSON Backup</div>
-                <div className="text-[10px] opacity-70 font-normal">Best for app restoration</div>
-              </div>
-            </button>
-
+          <div className="grid grid-cols-1 gap-3">
             <button 
               onClick={handleExportCSV}
-              className="w-full flex items-center justify-center space-x-3 bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-xl transition-all font-bold shadow-lg shadow-emerald-100"
+              className="w-full flex items-center justify-center space-x-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-4 rounded-xl transition-all font-bold border border-emerald-100"
             >
               <FileText size={20} />
               <div className="text-left">
@@ -568,50 +648,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
           </div>
         </div>
 
-        {/* Restore Card */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <h3 className="font-bold text-slate-800 mb-6 flex items-center">
-            <Upload size={18} className="mr-2 text-slate-400" />
-            Restore Data
-          </h3>
-          
-          <div className="space-y-3">
-            <button 
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full flex items-center justify-center space-x-3 bg-yellow-500 hover:bg-yellow-600 text-white py-4 rounded-xl transition-all font-bold shadow-lg shadow-yellow-100"
-            >
-              <Upload size={20} />
-              <div className="text-left">
-                <div className="text-sm">Upload Backup File</div>
-                <div className="text-[10px] opacity-90 font-normal">Select .json or .txt file</div>
-              </div>
-            </button>
-
-            <button 
-              onClick={handlePasteImport}
-              disabled={isPasting}
-              className="w-full flex items-center justify-center space-x-3 bg-slate-50 hover:bg-slate-100 text-slate-600 py-4 rounded-xl transition-all font-bold border border-slate-200"
-            >
-              <Copy size={18} />
-              <div className="text-left">
-                <div className="text-sm">{isPasting ? 'Reading...' : 'Paste from Clipboard'}</div>
-                <div className="text-[10px] opacity-70 font-normal">Paste copied backup text</div>
-              </div>
-            </button>
-            
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleImport} 
-              accept=".json,.txt" 
-              className="hidden" 
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Status Card */}
+        {/* Device Status Card */}
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <h3 className="font-bold text-slate-800 mb-6 flex items-center">
             <Smartphone size={18} className="mr-2 text-slate-400" />
@@ -639,6 +676,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
             </div>
           </div>
         </div>
+      </div>
 
         {/* Trash Section */}
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
@@ -687,7 +725,6 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
             </div>
           )}
         </div>
-      </div>
 
       <div className="text-center py-4">
         <p className="text-slate-400 text-[10px] flex items-center justify-center uppercase tracking-widest font-bold">

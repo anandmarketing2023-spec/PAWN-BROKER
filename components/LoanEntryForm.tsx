@@ -68,8 +68,8 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
         img.src = base64Str;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 800;
-          const MAX_HEIGHT = 800;
+          const MAX_WIDTH = 2000;
+          const MAX_HEIGHT = 2000;
           let width = img.width;
           let height = img.height;
 
@@ -90,12 +90,12 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
           const ctx = canvas.getContext('2d');
           ctx?.drawImage(img, 0, 0, width, height);
           
-          // Compress to JPEG with 0.6 quality to keep it small for localStorage
-          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+          // Higher quality for better detail
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.9);
           
-          // Final check on size (should be well under 2MB now)
-          if (compressedBase64.length > 1.5 * 1024 * 1024) {
-            showModal("Image Too Large", "The selected image is too large even after compression. Please try a different photo.", "warning");
+          // Increased limit for high-res images in IndexedDB
+          if (compressedBase64.length > 10 * 1024 * 1024) {
+            showModal("Image Too Large", "The selected image is exceptionally large. Please try a slightly smaller photo.", "warning");
             setIsProcessingImage(false);
             return;
           }

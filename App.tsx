@@ -12,16 +12,19 @@ import {
   Coins
 } from 'lucide-react';
 import { LoanEntry, BackupConfig, BackupEntry } from './types';
+import { getAllLoans, saveLoans, getConfig, saveConfig, getAllBackups, saveBackupsToDB } from './src/db';
 import Dashboard from './components/Dashboard';
 import LoanEntryForm from './components/LoanEntryForm';
 import Ledger from './components/Ledger';
 import CustomerSheet from './components/CustomerSheet';
 import StorageSettings from './components/StorageSettings';
 import SettlementModal from './components/SettlementModal';
+import HelpGuide from './components/HelpGuide';
 import Modal from './components/Modal';
+import { Share2, HelpCircle } from 'lucide-react';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'entry' | 'ledger' | 'customers' | 'storage'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'entry' | 'ledger' | 'customers' | 'storage' | 'help'>('dashboard');
   const [loans, setLoans] = useState<LoanEntry[]>([]);
   const [backupConfig, setBackupConfig] = useState<BackupConfig>({ frequency: 'Daily', enabled: true });
   const [backups, setBackups] = useState<BackupEntry[]>([]);
@@ -49,101 +52,128 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    const saved = localStorage.getItem('girvi_loans');
-    if (saved) {
+    const loadData = async () => {
       try {
-        setLoans(JSON.parse(saved));
+        const savedLoans = await getAllLoans();
+        if (savedLoans.length > 0) {
+          setLoans(savedLoans);
+        } else {
+          // Fallback to localStorage for migration
+          const legacyLoans = localStorage.getItem('girvi_loans');
+          if (legacyLoans) {
+            const parsed = JSON.parse(legacyLoans);
+            setLoans(parsed);
+            await saveLoans(parsed);
+          }
+        }
+
+        const savedConfig = await getConfig('backup_config');
+        if (savedConfig) {
+          setBackupConfig(savedConfig);
+        } else {
+          const legacyConfig = localStorage.getItem('girvi_backup_config');
+          if (legacyConfig) {
+            const parsed = JSON.parse(legacyConfig);
+            setBackupConfig(parsed);
+            await saveConfig('backup_config', parsed);
+          }
+        }
+
+        const savedBackups = await getAllBackups();
+        if (savedBackups.length > 0) {
+          setBackups(savedBackups);
+        } else {
+          const legacyBackups = localStorage.getItem('girvi_backups');
+          if (legacyBackups) {
+            const parsed = JSON.parse(legacyBackups);
+            setBackups(parsed);
+            await saveBackupsToDB(parsed);
+          }
+        }
       } catch (e) {
-        console.error("Failed to parse saved loans", e);
+        console.error("Failed to load data from IndexedDB", e);
+      } finally {
+        // Simulate initial load for professional feel
+        setTimeout(() => {
+          setIsLoading(false);
+        }, 1200);
       }
-    }
+    };
 
-    const savedConfig = localStorage.getItem('girvi_backup_config');
-    if (savedConfig) {
-      try {
-        setBackupConfig(JSON.parse(savedConfig));
-      } catch (e) {
-        console.error("Failed to parse backup config", e);
-      }
-    }
-
-    const savedBackups = localStorage.getItem('girvi_backups');
-    if (savedBackups) {
-      try {
-        setBackups(JSON.parse(savedBackups));
-      } catch (e) {
-        console.error("Failed to parse backups", e);
-      }
-    }
-
-    // Simulate initial load for professional feel
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 1200);
-
-    return () => clearTimeout(timer);
+    loadData();
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('girvi_backup_config', JSON.stringify(backupConfig));
-  }, [backupConfig]);
+    if (!isLoading) {
+      saveConfig('backup_config', backupConfig);
+    }
+  }, [backupConfig, isLoading]);
 
   useEffect(() => {
-    localStorage.setItem('girvi_backups', JSON.stringify(backups));
-  }, [backups]);
+    if (!isLoading) {
+      saveBackupsToDB(backups);
+    }
+  }, [backups, isLoading]);
 
-  // Auto Backup Logic
   useEffect(() => {
-    if (!backupConfig.enabled || loans.length === 0) return;
+    if (!isLoading) {
+      saveLoans(loans);
+    }
+  }, [loans, isLoading]);
 
-    const now = new Date();
-    const lastBackupDate = backupConfig.lastBackup ? new Date(backupConfig.lastBackup) : null;
-    
-    let shouldBackup = false;
-    let backupType: 'Daily' | 'Weekly' = 'Daily';
+  const exportData = () => {
+    const data = {
+      loans,
+      backupConfig,
+      backups,
+      version: '1.0',
+      exportDate: new Date().toISOString()
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Balaji_Ledger_Backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showModal("Export Successful", "Your data has been exported to a file. Keep it safe!", "success");
+  };
 
-    if (!lastBackupDate) {
-      shouldBackup = true;
-    } else {
-      const diffTime = Math.abs(now.getTime() - lastBackupDate.getTime());
-      const diffDays = diffTime / (1000 * 60 * 60 * 24);
-
-      if (backupConfig.frequency === 'Daily' && diffDays >= 1) {
-        shouldBackup = true;
-        backupType = 'Daily';
-      } else if (backupConfig.frequency === 'Weekly' && diffDays >= 7) {
-        shouldBackup = true;
-        backupType = 'Weekly';
+  const importData = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const content = e.target?.result as string;
+        const data = JSON.parse(content);
+        
+        if (data.loans && Array.isArray(data.loans)) {
+          showModal(
+            "Confirm Import",
+            `This will replace your current ${loans.length} records with ${data.loans.length} records from the backup file. Continue?`,
+            "warning",
+            async () => {
+              setLoans(data.loans);
+              if (data.backupConfig) setBackupConfig(data.backupConfig);
+              if (data.backups) setBackups(data.backups);
+              
+              await saveLoans(data.loans);
+              if (data.backupConfig) await saveConfig('backup_config', data.backupConfig);
+              if (data.backups) await saveBackupsToDB(data.backups);
+              
+              showModal("Import Successful", "Your data has been restored from the backup file.", "success");
+            }
+          );
+        } else {
+          showModal("Invalid File", "The selected file is not a valid Balaji Ledger backup.", "warning");
+        }
+      } catch (err) {
+        showModal("Error", "Failed to read the backup file. It might be corrupted.", "warning");
       }
-    }
-
-    if (shouldBackup) {
-      const newBackup: BackupEntry = {
-        id: crypto.randomUUID(),
-        timestamp: now.toISOString(),
-        type: backupType,
-        recordCount: loans.length,
-        data: loans
-      };
-
-      // Keep only last 10 backups to save space
-      const updatedBackups = [newBackup, ...backups].slice(0, 10);
-      setBackups(updatedBackups);
-      setBackupConfig(prev => ({ ...prev, lastBackup: now.toISOString() }));
-    }
-  }, [loans, backupConfig, backups]);
-
-  useEffect(() => {
-    localStorage.setItem('girvi_loans', JSON.stringify(loans));
-    
-    // Create an automatic snapshot every time data changes
-    if (loans.length > 0) {
-      localStorage.setItem('girvi_loans_backup_latest', JSON.stringify({
-        timestamp: new Date().toISOString(),
-        data: loans
-      }));
-    }
-  }, [loans]);
+    };
+    reader.readAsText(file);
+  };
 
   const saveLoan = (loanData: Omit<LoanEntry, 'id' | 'isDeleted'>) => {
     if (editingLoan) {
@@ -203,6 +233,23 @@ const App: React.FC = () => {
   const handleEdit = (loan: LoanEntry) => {
     setEditingLoan(loan);
     setActiveTab('entry');
+  };
+
+  const handleShareApp = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Balaji Pawn Brokers - Digital Ledger',
+          text: 'Manage your Gold & Silver loans securely with Balaji Ledger. Works offline and stores data locally.',
+          url: window.location.origin
+        });
+      } catch (err) {
+        // Ignore abort errors
+      }
+    } else {
+      navigator.clipboard.writeText(window.location.origin);
+      showModal("Link Copied", "App link copied to clipboard! Share it with your partners.", "success");
+    }
   };
 
   const adjustSettlementDate = (loan: LoanEntry) => {
@@ -271,6 +318,7 @@ const App: React.FC = () => {
             { id: 'ledger', icon: BookOpen, label: 'Ledger' },
             { id: 'customers', icon: Users, label: 'Customers' },
             { id: 'storage', icon: Settings, label: 'Storage' },
+            { id: 'help', icon: HelpCircle, label: 'Help Guide' },
           ].map((item) => (
             <button
               key={item.id}
@@ -289,6 +337,19 @@ const App: React.FC = () => {
             </button>
           ))}
         </nav>
+
+        <div className="mt-auto pt-6 border-t border-slate-100 space-y-2">
+          <button 
+            onClick={handleShareApp}
+            className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-blue-600 hover:bg-blue-50 transition-all font-bold"
+          >
+            <Share2 size={20} />
+            <span>Share App</span>
+          </button>
+          <div className="px-4 py-2">
+            <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">v1.0.0 Stable</p>
+          </div>
+        </div>
       </aside>
 
       {/* Mobile Header */}
@@ -301,10 +362,16 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center space-x-2">
           <button 
-            onClick={() => setActiveTab('customers')}
-            className={`p-1 transition-colors ${activeTab === 'customers' ? 'text-yellow-600' : 'text-slate-400'}`}
+            onClick={handleShareApp}
+            className="p-1 text-slate-400"
           >
-            <Users size={20} />
+            <Share2 size={20} />
+          </button>
+          <button 
+            onClick={() => setActiveTab('help')}
+            className={`p-1 transition-colors ${activeTab === 'help' ? 'text-yellow-600' : 'text-slate-400'}`}
+          >
+            <HelpCircle size={20} />
           </button>
           <button 
             onClick={() => setActiveTab('storage')}
@@ -340,6 +407,7 @@ const App: React.FC = () => {
             />
           )}
           {activeTab === 'customers' && <CustomerSheet loans={activeLoans} />}
+          {activeTab === 'help' && <HelpGuide />}
           {activeTab === 'storage' && (
             <StorageSettings 
               loans={loans} 
@@ -372,6 +440,8 @@ const App: React.FC = () => {
                 setBackups([newBackup, ...backups].slice(0, 10));
                 showModal("Backup Created", "Manual backup created successfully!", "success");
               }}
+              onExport={exportData}
+              onFileImport={importData}
             />
           )}
         </div>

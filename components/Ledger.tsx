@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Search, Download, Filter, Trash2, Edit3, Calendar, Phone, CheckCircle2, MoreVertical, IndianRupee, Image as ImageIcon, X } from 'lucide-react';
+import { Search, Download, Filter, Trash2, Edit3, Calendar, Phone, CheckCircle2, MoreVertical, IndianRupee, Image as ImageIcon, X, Share2 } from 'lucide-react';
 import { LoanEntry } from '../types';
 
 interface LedgerProps {
@@ -71,6 +71,47 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
     document.body.removeChild(link);
   };
 
+  const handleShareLoan = async (loan: LoanEntry) => {
+    const interest = loan.status === 'Closed' && loan.settledInterest !== undefined 
+      ? loan.settledInterest 
+      : calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate);
+    
+    const text = `
+*BALAJI PAWN BROKERS*
+Digital Ledger Receipt
+-----------------------
+S.No: #${String(loan.serialNumber).padStart(4, '0')}
+Date: ${new Date(loan.date).toLocaleDateString()}
+Customer: ${loan.name}
+Item: ${loan.metalType} - ${loan.description}
+Weight: ${loan.netWeight || loan.weight}g
+Principal: ₹${loan.amount.toLocaleString()}
+Interest: ${loan.interestRate}% p.m.
+Current Interest: ₹${interest.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+Total: ₹${(loan.amount + interest).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+Status: ${loan.status}
+-----------------------
+    `.trim();
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Loan #${loan.serialNumber} - ${loan.name}`,
+          text: text
+        });
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          // Fallback to clipboard
+          navigator.clipboard.writeText(text);
+          alert('Details copied to clipboard!');
+        }
+      }
+    } else {
+      navigator.clipboard.writeText(text);
+      alert('Details copied to clipboard!');
+    }
+  };
+
   return (
     <div className="animate-in fade-in duration-500">
       <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -125,6 +166,7 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
                 )}
               </div>
               <div className="flex items-center space-x-2">
+                <button onClick={() => handleShareLoan(loan)} className="p-2 text-blue-500 bg-blue-50 rounded-lg"><Share2 size={16} /></button>
                 <button onClick={() => onEdit(loan)} className="p-2 text-slate-400 bg-slate-50 rounded-lg"><Edit3 size={16} /></button>
                 <button onClick={() => onDelete(loan.id)} className="p-2 text-slate-400 bg-slate-50 rounded-lg"><Trash2 size={16} /></button>
               </div>
@@ -284,6 +326,7 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
                       <CheckCircle2 size={24} />
                     </button>
                     <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => handleShareLoan(loan)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg" title="Share Details"><Share2 size={16} /></button>
                       <button onClick={() => onEdit(loan)} className="p-1.5 text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-lg"><Edit3 size={16} /></button>
                       <button onClick={() => onDelete(loan.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
                     </div>

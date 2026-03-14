@@ -74,7 +74,42 @@
 <link rel="stylesheet" href="/index.css">
 </head>
 <body>
+    <div id="splash-screen" style="position: fixed; inset: 0; background: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; transition: opacity 0.5s ease-out;">
+        <div style="width: 80px; height: 80px; background: #EAB308; border-radius: 24px; display: flex; align-items: center; justify-content: center; box-shadow: 0 20px 25px -5px rgba(234, 179, 8, 0.2); margin-bottom: 24px; animation: pulse 2s infinite;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        </div>
+        <h1 style="font-family: 'Inter', sans-serif; font-weight: 900; color: #1e293b; font-size: 20px; letter-spacing: -0.025em; margin: 0;">BALAJI LEDGER</h1>
+        <p style="font-family: 'Inter', sans-serif; font-weight: 600; color: #64748b; font-size: 12px; margin-top: 8px; text-transform: uppercase; letter-spacing: 0.1em;">Secure Digital Ledger</p>
+        
+        <div style="position: absolute; bottom: 48px; width: 120px; height: 4px; background: #e2e8f0; border-radius: 2px; overflow: hidden;">
+            <div style="width: 40%; height: 100%; background: #EAB308; border-radius: 2px; animation: loading 1.5s infinite ease-in-out;"></div>
+        </div>
+    </div>
+
+    <style>
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        @keyframes loading {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(250%); }
+        }
+    </style>
+
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
+    <script>
+        window.addEventListener('load', () => {
+            const splash = document.getElementById('splash-screen');
+            setTimeout(() => {
+                if (splash) {
+                    splash.style.opacity = '0';
+                    setTimeout(() => splash.remove(), 500);
+                }
+            }, 800);
+        });
+    </script>
 </body>
 </html>
