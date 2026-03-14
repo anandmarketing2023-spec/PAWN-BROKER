@@ -1,196 +1,183 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Save, Phone, X, CheckCircle2, Search, User } from 'lucide-react';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { Save, User, MapPin, Phone, Scale, Info, MessageSquare, X, CheckCircle2, Calendar, Percent, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { LoanEntry, MetalType } from '../types';
 import Modal from './Modal';
-import OrnamentCamera from './OrnamentCamera';
 
-// Prop types 
-// Fixed: removed contradictory Omit<,'status'> & { status } pattern
 interface LoanEntryFormProps {
-  onSave: (loan: Omit<LoanEntry, 'id' | 'isDeleted'>) => void;
+  onSave: (loan: Omit<LoanEntry, 'id' | 'status'> & { status: 'Active' | 'Closed' }) => void;
   nextSerial: number;
   editingLoan: LoanEntry | null;
-  existingLoans?: LoanEntry[];   // For customer autofill
   onCancel?: () => void;
 }
 
-type FormData = {
-  serialNumber: string;
-  date: string;
-  name: string;
-  guardian: string;
-  address: string;
-  contactNumber: string;
-  metalType: MetalType;
-  description: string;
-  weight: string;
-  netWeight: string;
-  goldWeight: string;
-  goldNetWeight: string;
-  silverWeight: string;
-  silverNetWeight: string;
-  remark: string;
-  amount: string;
-  interestRate: string;
-  status: 'Active' | 'Closed';
-  imageUrl: string;
-};
+const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editingLoan, onCancel }) => {
+  const [formData, setFormData] = useState({
+    serialNumber: String(nextSerial),
+    date: new Date().toISOString().split('T')[0],
+    name: '',
+    guardian: '',
+    address: '',
+    contactNumber: '',
+    metalType: 'Gold' as MetalType,
+    description: '',
+    weight: '' as string | number,
+    netWeight: '' as string | number,
+    goldWeight: '' as string | number,
+    goldNetWeight: '' as string | number,
+    silverWeight: '' as string | number,
+    silverNetWeight: '' as string | number,
+    remark: '',
+    amount: '' as string | number,
+    interestRate: '' as string | number,
+    status: 'Active' as 'Active' | 'Closed',
+    imageUrl: ''
+  });
 
-const defaultForm = (serial: number): FormData => ({
-  serialNumber: String(serial),
-  date: new Date().toISOString().split('T')[0],
-  name: '',
-  guardian: '',
-  address: '',
-  contactNumber: '',
-  metalType: 'Gold',
-  description: '',
-  weight: '',
-  netWeight: '',
-  goldWeight: '',
-  goldNetWeight: '',
-  silverWeight: '',
-  silverNetWeight: '',
-  remark: '',
-  amount: '',
-  interestRate: '3',
-  status: 'Active',
-  imageUrl: '',
-});
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
 
-const loanToForm = (loan: LoanEntry): FormData => ({
-  serialNumber: String(loan.serialNumber),
-  date: loan.date,
-  name: loan.name,
-  guardian: loan.guardian,
-  address: loan.address,
-  contactNumber: loan.contactNumber,
-  metalType: loan.metalType,
-  description: loan.description,
-  weight: String(loan.weight),
-  netWeight: String(loan.netWeight),
-  goldWeight: String(loan.goldWeight ?? ''),
-  goldNetWeight: String(loan.goldNetWeight ?? ''),
-  silverWeight: String(loan.silverWeight ?? ''),
-  silverNetWeight: String(loan.silverNetWeight ?? ''),
-  remark: loan.remark,
-  amount: String(loan.amount),
-  interestRate: String(loan.interestRate),
-  status: loan.status,
-  imageUrl: loan.imageUrl ?? '',
-});
-
-const LoanEntryForm: React.FC<LoanEntryFormProps> = ({
-  onSave,
-  nextSerial,
-  editingLoan,
-  existingLoans = [],
-  onCancel,
-}) => {
-  const [formData, setFormData] = useState<FormData>(() =>
-    editingLoan ? loanToForm(editingLoan) : defaultForm(nextSerial)
-  );
-  const [nameSuggestions, setNameSuggestions] = useState<LoanEntry[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const nameInputRef = useRef<HTMLInputElement>(null);
-
+  // Modal State
   const [modalConfig, setModalConfig] = useState<{
-    isOpen: boolean; title: string; message: string;
-    type: 'info' | 'warning' | 'success' | 'confirm'; onConfirm?: () => void;
-  }>({ isOpen: false, title: '', message: '', type: 'info' });
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: 'info' | 'warning' | 'success' | 'confirm';
+    onConfirm?: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info'
+  });
 
-  const showModal = useCallback((
-    title: string, message: string,
-    type: 'info' | 'warning' | 'success' | 'confirm' = 'info',
-    onConfirm?: () => void
-  ) => {
+  const showModal = (title: string, message: string, type: 'info' | 'warning' | 'success' | 'confirm' = 'info', onConfirm?: () => void) => {
     setModalConfig({ isOpen: true, title, message, type, onConfirm });
-  }, []);
+  };
 
-  // Sync form when editingLoan changes 
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setIsProcessingImage(true);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64Str = reader.result as string;
+        
+        // Create an image to get dimensions and compress
+        const img = new Image();
+        img.src = base64Str;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 800;
+          const MAX_HEIGHT = 800;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          // Compress to JPEG with 0.6 quality to keep it small for localStorage
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+          
+          // Final check on size (should be well under 2MB now)
+          if (compressedBase64.length > 1.5 * 1024 * 1024) {
+            showModal("Image Too Large", "The selected image is too large even after compression. Please try a different photo.", "warning");
+            setIsProcessingImage(false);
+            return;
+          }
+          
+          setFormData(prev => ({ ...prev, imageUrl: compressedBase64 }));
+          setIsProcessingImage(false);
+        };
+        img.onerror = () => {
+          showModal("Error", "Failed to process image. Please try again.", "warning");
+          setIsProcessingImage(false);
+        };
+      };
+      reader.onerror = () => {
+        showModal("Error", "Failed to read file. Please try again.", "warning");
+        setIsProcessingImage(false);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removeImage = () => {
+    setFormData({ ...formData, imageUrl: '' });
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   useEffect(() => {
     if (editingLoan) {
-      setFormData(loanToForm(editingLoan));
+      setFormData({
+        serialNumber: String(editingLoan.serialNumber),
+        date: editingLoan.date,
+        name: editingLoan.name,
+        guardian: editingLoan.guardian,
+        address: editingLoan.address,
+        contactNumber: editingLoan.contactNumber,
+        metalType: editingLoan.metalType,
+        description: editingLoan.description,
+        weight: editingLoan.weight,
+        netWeight: editingLoan.netWeight,
+        goldWeight: editingLoan.goldWeight || '',
+        goldNetWeight: editingLoan.goldNetWeight || '',
+        silverWeight: editingLoan.silverWeight || '',
+        silverNetWeight: editingLoan.silverNetWeight || '',
+        remark: editingLoan.remark,
+        amount: editingLoan.amount,
+        interestRate: editingLoan.interestRate,
+        status: editingLoan.status,
+        imageUrl: editingLoan.imageUrl || ''
+      });
     } else {
-      setFormData(defaultForm(nextSerial));
+      setFormData(prev => ({ 
+        ...prev, 
+        serialNumber: String(nextSerial),
+        date: new Date().toISOString().split('T')[0],
+        interestRate: 3 
+      }));
     }
-  }, [editingLoan]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editingLoan, nextSerial]);
 
-  // When not editing, keep serial in sync with nextSerial
-  useEffect(() => {
-    if (!editingLoan) {
-      setFormData(prev => ({ ...prev, serialNumber: String(nextSerial) }));
-    }
-  }, [nextSerial, editingLoan]);
-
-  // Customer autofill 
-  const handleNameChange = (value: string) => {
-    setFormData(prev => ({ ...prev, name: value }));
-    if (value.length >= 2 && existingLoans.length > 0) {
-      const seen = new Set<string>();
-      const matches = existingLoans
-        .filter(l =>
-          !l.isDeleted &&
-          l.name.toLowerCase().includes(value.toLowerCase()) &&
-          !seen.has(l.contactNumber) &&
-          seen.add(l.contactNumber)
-        )
-        .slice(0, 5);
-      setNameSuggestions(matches);
-      setShowSuggestions(matches.length > 0);
-    } else {
-      setShowSuggestions(false);
-    }
-  };
-
-  const autofillCustomer = (loan: LoanEntry) => {
-    setFormData(prev => ({
-      ...prev,
-      name: loan.name,
-      guardian: loan.guardian,
-      address: loan.address,
-      contactNumber: loan.contactNumber,
-    }));
-    setShowSuggestions(false);
-    nameInputRef.current?.blur();
-  };
-
-  // Metal type change 
   const handleMetalChange = (metal: MetalType) => {
-    const rate = metal === 'Silver' ? '4' : metal === 'Both' ? '3.5' : '3';
-    setFormData(prev => ({ ...prev, metalType: metal, interestRate: rate }));
+    let rate = 3;
+    if (metal === 'Silver') rate = 4;
+    if (metal === 'Both') rate = 3.5;
+    setFormData({ ...formData, metalType: metal, interestRate: rate });
   };
 
-  // Submit 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave({
+      ...formData,
       serialNumber: Number(formData.serialNumber),
-      date: formData.date,
-      name: formData.name,
-      guardian: formData.guardian,
-      address: formData.address,
-      contactNumber: formData.contactNumber,
-      metalType: formData.metalType,
-      description: formData.description,
       weight: Number(formData.weight),
       netWeight: Number(formData.netWeight),
       goldWeight: formData.metalType === 'Both' ? Number(formData.goldWeight) : undefined,
       goldNetWeight: formData.metalType === 'Both' ? Number(formData.goldNetWeight) : undefined,
       silverWeight: formData.metalType === 'Both' ? Number(formData.silverWeight) : undefined,
       silverNetWeight: formData.metalType === 'Both' ? Number(formData.silverNetWeight) : undefined,
-      remark: formData.remark,
       amount: Number(formData.amount),
       interestRate: Number(formData.interestRate),
       status: formData.status,
-      imageUrl: formData.imageUrl || undefined,
-      closeDate: editingLoan?.closeDate,
-      settledInterest: editingLoan?.settledInterest,
+      imageUrl: formData.imageUrl || undefined
     });
   };
-
-  const set = (field: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setFormData(prev => ({ ...prev, [field]: e.target.value }));
 
   const inputClass = "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all outline-none text-base";
   const labelClass = "block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1";
@@ -211,23 +198,21 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 md:p-8 space-y-6">
-
-          {/* Row 1: Serial, Date, Status */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className={labelClass}>S.No (Serial)</label>
-              <input type="number" className={`${inputClass} font-mono font-bold`} value={formData.serialNumber} onChange={set('serialNumber')} required />
+              <input type="number" className={`${inputClass} font-mono font-bold`} value={formData.serialNumber} onChange={e => setFormData({...formData, serialNumber: e.target.value})} required />
             </div>
             <div>
               <label className={labelClass}>Booking Date</label>
-              <input type="date" className={inputClass} value={formData.date} onChange={set('date')} required />
+              <input type="date" className={inputClass} value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} required />
             </div>
             <div>
               <label className={labelClass}>Payment Status</label>
-              <select
+              <select 
                 className={`${inputClass} font-bold ${formData.status === 'Active' ? 'text-blue-600' : 'text-red-600'}`}
                 value={formData.status}
-                onChange={e => setFormData(prev => ({ ...prev, status: e.target.value as 'Active' | 'Closed' }))}
+                onChange={e => setFormData({...formData, status: e.target.value as any})}
               >
                 <option value="Active">UNPAID (Active)</option>
                 <option value="Closed">PAID (Closed)</option>
@@ -235,170 +220,157 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({
             </div>
           </div>
 
-          {/* Customer Profile */}
           <div className="space-y-4 pt-4">
             <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest border-l-4 border-yellow-500 pl-3">Customer Profile</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <input type="text" className={inputClass} placeholder="Full Name" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required />
+              <input type="text" className={inputClass} placeholder="Father/Guardian Name" value={formData.guardian} onChange={e => setFormData({...formData, guardian: e.target.value})} required />
+              <input type="tel" className={inputClass} placeholder="Mobile Number" value={formData.contactNumber} onChange={e => setFormData({...formData, contactNumber: e.target.value})} required />
+              <input type="text" className={inputClass} placeholder="Complete Address" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} required />
+            </div>
+          </div>
 
-              {/* Name with autofill */}
-              <div className="relative">
-                <div className="relative">
-                  <input
-                    ref={nameInputRef}
-                    type="text"
-                    className={inputClass}
-                    placeholder="Full Name"
-                    value={formData.name}
-                    onChange={e => handleNameChange(e.target.value)}
-                    onFocus={() => formData.name.length >= 2 && setShowSuggestions(nameSuggestions.length > 0)}
-                    onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                    required
-                    autoComplete="off"
-                  />
-                  {existingLoans.length > 0 && (
-                    <Search size={16} className="absolute right-3 top-3.5 text-slate-300 pointer-events-none" />
-                  )}
+          <div className="space-y-4 pt-4">
+             <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest border-l-4 border-yellow-500 pl-3">Asset & Collateral</h3>
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <select className={inputClass} value={formData.metalType} onChange={e => handleMetalChange(e.target.value as any)}>
+                  <option value="Gold">Gold</option>
+                  <option value="Silver">Silver</option>
+                  <option value="Both">Both</option>
+                </select>
+                <div className="md:col-span-2">
+                  <input type="text" className={inputClass} placeholder="e.g. 2 Gold Bangles" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} required />
                 </div>
-                {showSuggestions && (
-                  <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
-                    <div className="px-3 py-2 bg-slate-50 border-b border-slate-100">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Returning customers</p>
+             </div>
+             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {formData.metalType !== 'Both' ? (
+                  <>
+                    <div>
+                      <label className={labelClass}>Gross (g)</label>
+                      <input type="number" step="0.001" className={inputClass} value={formData.weight} onChange={e => setFormData({...formData, weight: e.target.value})} required />
                     </div>
-                    {nameSuggestions.map(loan => (
-                      <button
-                        key={loan.id}
-                        type="button"
-                        onMouseDown={() => autofillCustomer(loan)}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-yellow-50 transition-colors text-left"
-                      >
-                        <div className="w-8 h-8 rounded-full bg-yellow-100 flex items-center justify-center shrink-0">
-                          <User size={14} className="text-yellow-600" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-slate-800 truncate">{loan.name}</p>
-                          <p className="text-[10px] text-slate-400 flex items-center gap-1">
-                            <Phone size={9} />{loan.contactNumber}
-                          </p>
-                        </div>
-                      </button>
-                    ))}
+                    <div>
+                      <label className={labelClass}>Net (g)</label>
+                      <input type="number" step="0.001" className={inputClass} value={formData.netWeight} onChange={e => setFormData({...formData, netWeight: e.target.value})} required />
+                    </div>
+                  </>
+                ) : (
+                  <div className="col-span-2 md:col-span-4 grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <div className="col-span-2 md:col-span-4 flex items-center gap-2 mb-1">
+                      <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Gold Details</span>
+                    </div>
+                    <div>
+                      <label className={labelClass}>Gold Gross (g)</label>
+                      <input type="number" step="0.001" className={inputClass} value={formData.goldWeight} onChange={e => setFormData({...formData, goldWeight: e.target.value})} required />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Gold Net (g)</label>
+                      <input type="number" step="0.001" className={inputClass} value={formData.goldNetWeight} onChange={e => setFormData({...formData, goldNetWeight: e.target.value})} required />
+                    </div>
+                    <div className="col-span-2 md:col-span-4 flex items-center gap-2 mb-1 mt-2">
+                      <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Silver Details</span>
+                    </div>
+                    <div>
+                      <label className={labelClass}>Silver Gross (g)</label>
+                      <input type="number" step="0.001" className={inputClass} value={formData.silverWeight} onChange={e => setFormData({...formData, silverWeight: e.target.value})} required />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Silver Net (g)</label>
+                      <input type="number" step="0.001" className={inputClass} value={formData.silverNetWeight} onChange={e => setFormData({...formData, silverNetWeight: e.target.value})} required />
+                    </div>
                   </div>
                 )}
-              </div>
-
-              <input type="text" className={inputClass} placeholder="Father/Guardian Name" value={formData.guardian} onChange={set('guardian')} required />
-              <input type="tel" className={inputClass} placeholder="Mobile Number" value={formData.contactNumber} onChange={set('contactNumber')} required />
-              <input type="text" className={inputClass} placeholder="Complete Address" value={formData.address} onChange={set('address')} required />
-            </div>
-          </div>
-
-          {/* Asset & Collateral */}
-          <div className="space-y-4 pt-4">
-            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest border-l-4 border-yellow-500 pl-3">Asset & Collateral</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <select className={inputClass} value={formData.metalType} onChange={e => handleMetalChange(e.target.value as MetalType)}>
-                <option value="Gold">Gold</option>
-                <option value="Silver">Silver</option>
-                <option value="Both">Both</option>
-              </select>
-              <div className="md:col-span-2">
-                <input type="text" className={inputClass} placeholder="e.g. 2 Gold Bangles" value={formData.description} onChange={set('description')} required />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {formData.metalType !== 'Both' ? (
-                <>
-                  <div>
-                    <label className={labelClass}>Gross (g)</label>
-                    <input type="number" step="0.001" className={inputClass} value={formData.weight} onChange={set('weight')} required />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Net (g)</label>
-                    <input type="number" step="0.001" className={inputClass} value={formData.netWeight} onChange={set('netWeight')} required />
-                  </div>
-                </>
-              ) : (
-                <div className="col-span-2 md:col-span-4 grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                  <div className="col-span-2 md:col-span-4 flex items-center gap-2 mb-1">
-                    <span className="w-2 h-2 rounded-full bg-yellow-500" />
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Gold Details</span>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Gold Gross (g)</label>
-                    <input type="number" step="0.001" className={inputClass} value={formData.goldWeight} onChange={set('goldWeight')} required />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Gold Net (g)</label>
-                    <input type="number" step="0.001" className={inputClass} value={formData.goldNetWeight} onChange={set('goldNetWeight')} required />
-                  </div>
-                  <div className="col-span-2 md:col-span-4 flex items-center gap-2 mb-1 mt-2">
-                    <span className="w-2 h-2 rounded-full bg-slate-400" />
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Silver Details</span>
-                  </div>
-                  <div>
-                    <label className={labelClass}>Silver Gross (g)</label>
-                    <input type="number" step="0.001" className={inputClass} value={formData.silverWeight} onChange={set('silverWeight')} required />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Silver Net (g)</label>
-                    <input type="number" step="0.001" className={inputClass} value={formData.silverNetWeight} onChange={set('silverNetWeight')} required />
-                  </div>
+                <div>
+                  <label className={labelClass}>Principal</label>
+                  <input type="number" className={`${inputClass} font-bold text-lg`} value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} required />
                 </div>
-              )}
-              <div>
-                <label className={labelClass}>Principal ()</label>
-                <input type="number" className={`${inputClass} font-bold text-lg`} value={formData.amount} onChange={set('amount')} required />
-              </div>
-              <div>
-                <label className={labelClass}>Interest % p.m.</label>
-                <input type="number" step="0.01" className={`${inputClass} font-bold text-yellow-700 bg-yellow-50`} value={formData.interestRate} onChange={set('interestRate')} required />
-              </div>
-            </div>
+                <div>
+                  <label className={labelClass}>Interest %</label>
+                  <input type="number" step="0.01" className={`${inputClass} font-bold text-yellow-700 bg-yellow-50`} value={formData.interestRate} onChange={e => setFormData({...formData, interestRate: e.target.value})} required />
+                </div>
+             </div>
           </div>
 
-          {/* Ornament Photo */}
-          <div className="space-y-3 pt-4">
-            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest border-l-4 border-yellow-500 pl-3">Ornament Photo</h3>
-            <OrnamentCamera
-              imageUrl={formData.imageUrl}
-              onChange={url => setFormData(prev => ({ ...prev, imageUrl: url }))}
-            />
+          <div className="space-y-4 pt-4">
+             <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest border-l-4 border-yellow-500 pl-3">Ornament Photo</h3>
+             <div className="flex flex-col md:flex-row gap-6 items-start">
+                <div className="w-full md:w-48 h-48 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center overflow-hidden relative group">
+                   {isProcessingImage ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="w-8 h-8 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Processing...</p>
+                      </div>
+                   ) : formData.imageUrl ? (
+                      <>
+                        <img src={formData.imageUrl} alt="Ornament" className="w-full h-full object-cover" />
+                        <button 
+                          type="button"
+                          onClick={removeImage}
+                          className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </>
+                   ) : (
+                      <div className="text-center p-4">
+                         <ImageIcon className="mx-auto text-slate-300 mb-2" size={32} />
+                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">No Photo Added</p>
+                      </div>
+                   )}
+                </div>
+                
+                 <div className="flex-1 space-y-3 w-full">
+                   <p className="text-xs text-slate-500 leading-relaxed">
+                      Capture a clear photo of the ornament for visual verification and record keeping. 
+                      Supports direct camera capture or gallery upload.
+                   </p>
+                    <div className="flex flex-wrap gap-3">
+                      <button 
+                        type="button"
+                        disabled={isProcessingImage}
+                        onClick={() => fileInputRef.current?.click()}
+                        className={`flex items-center gap-2 px-4 py-2.5 bg-yellow-500 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-yellow-600 transition-all shadow-md active:scale-95 ${isProcessingImage ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        <ImageIcon size={16} />
+                        {isProcessingImage ? 'Processing...' : 'Capture or Upload'}
+                      </button>
+                      <input 
+                        type="file" 
+                        ref={fileInputRef}
+                        onChange={handleImageChange}
+                        accept="image/*"
+                        capture="environment"
+                        className="absolute inset-0 w-0 h-0 opacity-0 pointer-events-none"
+                      />
+                   </div>
+                   <p className="text-[10px] text-slate-400 italic">Max size: 2MB. Recommended for mobile devices.</p>
+                </div>
+             </div>
           </div>
 
-          {/* Remark */}
-          <div className="pt-2">
-            <label className={labelClass}>Remark (Optional)</label>
-            <input type="text" className={inputClass} placeholder="Any additional notes..." value={formData.remark} onChange={set('remark')} />
-          </div>
-
-          {/* Closed notice (edit mode) */}
           {editingLoan && formData.status === 'Closed' && (
             <div className="bg-red-600 rounded-2xl p-4 md:p-6 text-white flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <CheckCircle2 size={24} />
-                <span className="font-bold text-sm md:text-base">Fully Settled Account</span>
-              </div>
-              <div className="text-right">
-                <p className="text-[9px] uppercase font-bold opacity-80">Closed On</p>
-                <p className="font-black text-sm md:text-lg">
-                  {new Date(editingLoan.closeDate || new Date()).toLocaleDateString()}
-                </p>
-              </div>
+               <div className="flex items-center gap-3">
+                 <CheckCircle2 size={24} />
+                 <span className="font-bold text-sm md:text-base">Fully Settled Account</span>
+               </div>
+               <div className="text-right">
+                 <p className="text-[9px] uppercase font-bold opacity-80">Closed On</p>
+                 <p className="font-black text-sm md:text-lg">{new Date(editingLoan.closeDate || new Date()).toLocaleDateString()}</p>
+               </div>
             </div>
           )}
 
-          <button
-            type="submit"
-            className="w-full bg-yellow-500 hover:bg-yellow-600 active:scale-[0.98] text-white font-black py-4 rounded-2xl shadow-xl shadow-yellow-100 transition-all flex items-center justify-center space-x-2"
-          >
+          <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-600 active:scale-[0.98] text-white font-black py-4 rounded-2xl shadow-xl shadow-yellow-100 transition-all flex items-center justify-center space-x-2">
             <Save size={22} />
             <span className="uppercase tracking-widest text-sm">{editingLoan ? 'Update Record' : 'Save to Ledger'}</span>
           </button>
         </div>
       </form>
 
-      <Modal
+      <Modal 
         isOpen={modalConfig.isOpen}
         onClose={() => setModalConfig(prev => ({ ...prev, isOpen: false }))}
         title={modalConfig.title}

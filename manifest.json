@@ -1,7 +1,7 @@
 {
-  "short_name": "GirviGold",
-  "name": "GirviGold Digital Ledger",
-  "description": "Secure local-first ledger for Pawn Brokers and Jewelers.",
+  "short_name": "BalajiLedger",
+  "name": "BALAJI PAWN BROKERS - Digital Ledger",
+  "description": "Secure digital ledger for Gold & Silver loans. Manage collateral and calculate interest automatically.",
   "icons": [
     {
       "src": "https://cdn-icons-png.flaticon.com/512/2696/2696191.png",

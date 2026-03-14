@@ -442,10 +442,10 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <h3 className="font-bold text-slate-800 mb-4 flex items-center">
           <RefreshCw size={18} className="mr-2 text-yellow-500" />
-          Data Transfer Key
+          Data Copy & Transfer Key
         </h3>
         <p className="text-slate-500 text-xs mb-6 leading-relaxed">
-          Use this to quickly move your data between phones. Generate a key on your old phone and paste it on your new phone.
+          Use this to quickly <strong>copy</strong> your data to another phone. Generating a key <strong>will not delete</strong> any data from this device. It simply creates a secure copy for transfer.
         </p>
 
         <div className="space-y-4">
@@ -455,7 +455,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
               className="w-full flex items-center justify-center space-x-2 bg-yellow-500 hover:bg-yellow-600 text-white py-3 rounded-xl transition-all font-bold shadow-md"
             >
               <Smartphone size={18} />
-              <span>Generate Transfer Key</span>
+              <span>Generate Copy Key</span>
             </button>
           ) : (
             <div className="space-y-3">
