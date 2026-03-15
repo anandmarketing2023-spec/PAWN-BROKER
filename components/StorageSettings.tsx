@@ -6,9 +6,7 @@ import {
   ShieldCheck, 
   Smartphone,
   Info,
-  RefreshCw,
   Copy,
-  Share2,
   CheckCircle,
   Trash2,
   RotateCcw,
@@ -194,55 +192,6 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
     }
   };
 
-  const handleShare = async (textToShare?: string) => {
-    try {
-      if (textToShare) {
-        // Share specific text (like a transfer key)
-        if (navigator.share) {
-          await navigator.share({
-            title: 'Balaji Ledger Data',
-            text: textToShare
-          });
-        } else {
-          // Fallback to clipboard
-          await navigator.clipboard.writeText(textToShare);
-          setCopySuccess(true);
-          setTimeout(() => setCopySuccess(false), 2000);
-          showModal("Copied", "Sharing not supported on this device. Data copied to clipboard instead.", "success");
-        }
-        return;
-      }
-
-      // Default: Share entire database as file
-      const dataStr = JSON.stringify(loans, null, 2);
-      const file = new File([dataStr], `balaji_ledger_${new Date().toISOString().split('T')[0]}.json`, { type: 'text/plain' });
-      
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: 'Balaji Ledger Backup',
-          text: 'My Balaji Pawn Brokers Ledger Backup'
-        });
-      } else if (navigator.share) {
-        // Fallback to sharing as text if file sharing is not supported but text sharing is
-        await navigator.share({
-          title: 'Balaji Ledger Backup',
-          text: dataStr
-        });
-      } else {
-        throw new Error('Share not supported');
-      }
-    } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        showModal(
-          "Sharing Not Supported", 
-          "Your device or browser doesn't support direct sharing from this app. Please use 'Download Backup File' instead.", 
-          "info"
-        );
-      }
-    }
-  };
-
   const handleUpdateCheck = () => {
     setIsUpdating(true);
     setTimeout(() => {
@@ -338,70 +287,6 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
   const storageSize = new Blob([JSON.stringify(loans)]).size;
   const formattedSize = (storageSize / 1024).toFixed(2);
 
-  const [transferKey, setTransferKey] = useState('');
-  const [showKey, setShowKey] = useState(false);
-
-  const generateTransferKey = () => {
-    const dataStr = JSON.stringify(loans);
-    
-    // Check if data is too large for a key (base64 of large data with images will fail or be too big)
-    if (dataStr.length > 500000) { // ~500KB limit for "Key" mode
-      showModal(
-        "Data Too Large", 
-        "Your ledger contains high-resolution images and is too large for a 'Transfer Key'. Please use the 'Simple Backup' (Download File) method instead.", 
-        "info"
-      );
-      return;
-    }
-
-    try {
-      // Simple base64 encoding to make it look like a "key"
-      const key = btoa(unescape(encodeURIComponent(dataStr)));
-      setTransferKey(key);
-      setShowKey(true);
-    } catch (err) {
-      showModal("Error", "Failed to generate key. Data might be too large. Use File Backup instead.", "warning");
-    }
-  };
-
-  const handleKeyImport = () => {
-    if (!transferKey.trim()) {
-      showModal("Input Required", "Please enter a valid transfer key.", "info");
-      return;
-    }
-
-    try {
-      const decodedData = decodeURIComponent(escape(atob(transferKey.trim())));
-      const importedData = JSON.parse(decodedData);
-      
-      if (Array.isArray(importedData)) {
-        showModal(
-          "Confirm Import",
-          `Import ${importedData.length} records from this key?`,
-          "confirm",
-          () => {
-            const existingIds = new Set(loans.map(l => l.id));
-            const newLoans = [...loans];
-            
-            importedData.forEach((item: any) => {
-              if (!existingIds.has(item.id)) {
-                newLoans.push(item);
-              }
-            });
-            
-            onImport(newLoans);
-            showModal("Success", "Data imported successfully!", "success");
-            setTransferKey('');
-          }
-        );
-      } else {
-        showModal("Error", "Invalid transfer key format.", "warning");
-      }
-    } catch (err) {
-      showModal("Error", "This is not a valid Balaji Ledger Transfer Key.", "warning");
-    }
-  };
-
   return (
     <div className="space-y-6 pb-10">
       <div className="flex items-center space-x-3 mb-2">
@@ -425,37 +310,6 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
         </div>
       </div>
 
-      {/* Mobile App Installation Section */}
-      <div className="bg-slate-900 rounded-3xl p-6 text-white shadow-xl overflow-hidden relative">
-        <div className="relative z-10">
-          <div className="flex items-center space-x-2 mb-4">
-            <div className="bg-yellow-500 p-2 rounded-xl">
-              <Smartphone size={20} className="text-slate-900" />
-            </div>
-            <h3 className="font-black uppercase tracking-tight text-lg">Install Mobile App</h3>
-          </div>
-          <p className="text-slate-400 text-xs mb-6 leading-relaxed max-w-xs">
-            Use Balaji Ledger like a real app. Works offline and appears on your home screen.
-          </p>
-          
-          <div className="space-y-3">
-            <div className="flex items-start space-x-3">
-              <div className="w-5 h-5 bg-white/10 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">1</div>
-              <p className="text-[11px] text-slate-300">Open this site in <span className="text-white font-bold">Chrome</span> (Android) or <span className="text-white font-bold">Safari</span> (iPhone).</p>
-            </div>
-            <div className="flex items-start space-x-3">
-              <div className="w-5 h-5 bg-white/10 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">2</div>
-              <p className="text-[11px] text-slate-300">Tap <span className="text-white font-bold">Menu</span> (⋮) or <span className="text-white font-bold">Share</span> (⎙).</p>
-            </div>
-            <div className="flex items-start space-x-3">
-              <div className="w-5 h-5 bg-white/10 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">3</div>
-              <p className="text-[11px] text-slate-300">Select <span className="text-yellow-500 font-bold">"Add to Home Screen"</span> or <span className="text-yellow-500 font-bold">"Install App"</span>.</p>
-            </div>
-          </div>
-        </div>
-        <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-yellow-500/10 rounded-full blur-3xl"></div>
-      </div>
-
       {/* Auto Backup Section */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <BackupManager 
@@ -466,82 +320,6 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
           onDeleteBackup={onDeleteBackup} 
           onManualBackup={onManualBackup} 
         />
-      </div>
-
-      {/* Data Transfer Key Section */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-        <h3 className="font-bold text-slate-800 mb-4 flex items-center">
-          <RefreshCw size={18} className="mr-2 text-yellow-500" />
-          Data Copy & Transfer Key
-        </h3>
-        <p className="text-slate-500 text-xs mb-6 leading-relaxed">
-          Use this to quickly <strong>copy</strong> your data to another phone. Generating a key <strong>will not delete</strong> any data from this device. It simply creates a secure copy for transfer.
-        </p>
-
-        <div className="space-y-4">
-          {!showKey ? (
-            <button 
-              onClick={generateTransferKey}
-              className="w-full flex items-center justify-center space-x-2 bg-yellow-500 hover:bg-yellow-600 text-white py-3 rounded-xl transition-all font-bold shadow-md"
-            >
-              <Smartphone size={18} />
-              <span>Generate Copy Key</span>
-            </button>
-          ) : (
-            <div className="space-y-3">
-              <div className="relative">
-                <textarea 
-                  readOnly
-                  value={transferKey}
-                  className="w-full h-24 p-3 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-mono break-all focus:ring-0 outline-none"
-                />
-                <div className="absolute top-2 right-2 flex space-x-2">
-                   <button 
-                    onClick={() => {
-                      navigator.clipboard.writeText(transferKey);
-                      setCopySuccess(true);
-                      setTimeout(() => setCopySuccess(false), 2000);
-                    }}
-                    className="p-2 bg-white border border-slate-200 rounded-lg text-slate-600 shadow-sm hover:bg-slate-50"
-                  >
-                    {copySuccess ? <CheckCircle size={14} className="text-green-500" /> : <Copy size={14} />}
-                  </button>
-                  <button 
-                    onClick={() => handleShare(transferKey)}
-                    className="p-2 bg-white border border-slate-200 rounded-lg text-slate-600 shadow-sm hover:bg-slate-50"
-                  >
-                    <Share2 size={14} />
-                  </button>
-                </div>
-              </div>
-              <button 
-                onClick={() => setShowKey(false)}
-                className="w-full py-2 text-xs font-bold text-slate-400 hover:text-slate-600"
-              >
-                Hide Key
-              </button>
-            </div>
-          )}
-
-          <div className="relative pt-4 border-t border-slate-100">
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Import from Key</label>
-            <div className="flex gap-2">
-              <input 
-                type="text"
-                placeholder="Paste Transfer Key here..."
-                value={transferKey && !showKey ? transferKey : ''}
-                onChange={(e) => setTransferKey(e.target.value)}
-                className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-yellow-500 outline-none"
-              />
-              <button 
-                onClick={handleKeyImport}
-                className="px-6 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-xs transition-all active:scale-95"
-              >
-                Import
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -610,7 +388,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <h3 className="font-bold text-slate-800 mb-4 flex items-center">
             <FileText size={18} className="mr-2 text-slate-400" />
-            Other Export Formats
+            Excel Export
           </h3>
           
           <div className="grid grid-cols-1 gap-3">
@@ -621,30 +399,21 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
               <FileText size={20} />
               <div className="text-left">
                 <div className="text-sm">Download CSV (Excel)</div>
-                <div className="text-[10px] opacity-70 font-normal">Best for viewing on mobile</div>
+                <div className="text-[10px] opacity-70 font-normal">Best for viewing on computer</div>
               </div>
             </button>
             
-            <div className="grid grid-cols-2 gap-3">
-              <button 
-                onClick={handleShare}
-                className="flex flex-col items-center justify-center space-y-1 bg-blue-50 hover:bg-blue-100 text-blue-700 py-3 rounded-xl transition-all font-bold"
-              >
-                <Share2 size={18} />
-                <span className="text-[10px] uppercase tracking-wider">Mobile Share</span>
-              </button>
-              <button 
-                onClick={handleCopyToClipboard}
-                className={`flex flex-col items-center justify-center space-y-1 py-3 rounded-xl transition-all font-bold border ${
-                  copySuccess 
-                  ? 'bg-green-50 border-green-200 text-green-600' 
-                  : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
-                }`}
-              >
-                {copySuccess ? <CheckCircle size={18} /> : <Copy size={18} />}
-                <span className="text-[10px] uppercase tracking-wider">{copySuccess ? 'Copied' : 'Copy Data'}</span>
-              </button>
-            </div>
+            <button 
+              onClick={handleCopyToClipboard}
+              className={`w-full flex items-center justify-center space-x-3 py-4 rounded-xl transition-all font-bold border ${
+                copySuccess 
+                ? 'bg-green-50 border-green-200 text-green-600' 
+                : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+              }`}
+            >
+              {copySuccess ? <CheckCircle size={20} /> : <Copy size={20} />}
+              <span className="text-sm">{copySuccess ? 'Copied to Clipboard' : 'Copy All Data'}</span>
+            </button>
           </div>
         </div>
 

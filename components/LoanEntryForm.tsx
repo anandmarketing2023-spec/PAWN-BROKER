@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Save, User, MapPin, Phone, Scale, Info, MessageSquare, X, CheckCircle2, Calendar, Percent, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { LoanEntry, MetalType } from '../types';
 import Modal from './Modal';
@@ -8,10 +8,11 @@ interface LoanEntryFormProps {
   onSave: (loan: Omit<LoanEntry, 'id' | 'status'> & { status: 'Active' | 'Closed' }) => void;
   nextSerial: number;
   editingLoan: LoanEntry | null;
+  loans: LoanEntry[];
   onCancel?: () => void;
 }
 
-const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editingLoan, onCancel }) => {
+const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editingLoan, loans, onCancel }) => {
   const [formData, setFormData] = useState({
     serialNumber: String(nextSerial),
     date: new Date().toISOString().split('T')[0],
@@ -36,6 +37,60 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [suggestions, setSuggestions] = useState<{ name: string; guardian: string; contact: string; address: string }[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const suggestionRef = useRef<HTMLDivElement>(null);
+
+  // Extract unique customer profiles
+  const customerProfiles = useMemo(() => {
+    const profiles: Record<string, { name: string; guardian: string; contact: string; address: string }> = {};
+    loans.forEach(loan => {
+      const key = loan.name.toLowerCase().trim();
+      if (!profiles[key]) {
+        profiles[key] = {
+          name: loan.name,
+          guardian: loan.guardian,
+          contact: loan.contactNumber,
+          address: loan.address
+        };
+      }
+    });
+    return Object.values(profiles);
+  }, [loans]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (suggestionRef.current && !suggestionRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleNameChange = (value: string) => {
+    setFormData({ ...formData, name: value });
+    if (value.trim().length > 1) {
+      const filtered = customerProfiles.filter(p => 
+        p.name.toLowerCase().includes(value.toLowerCase())
+      ).slice(0, 5);
+      setSuggestions(filtered);
+      setShowSuggestions(filtered.length > 0);
+    } else {
+      setShowSuggestions(false);
+    }
+  };
+
+  const selectSuggestion = (profile: { name: string; guardian: string; contact: string; address: string }) => {
+    setFormData({
+      ...formData,
+      name: profile.name,
+      guardian: profile.guardian,
+      contactNumber: profile.contact,
+      address: profile.address
+    });
+    setShowSuggestions(false);
+  };
 
   // Modal State
   const [modalConfig, setModalConfig] = useState<{
@@ -223,7 +278,34 @@ const LoanEntryForm: React.FC<LoanEntryFormProps> = ({ onSave, nextSerial, editi
           <div className="space-y-4 pt-4">
             <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest border-l-4 border-yellow-500 pl-3">Customer Profile</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <input type="text" className={inputClass} placeholder="Full Name" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required />
+              <div className="relative" ref={suggestionRef}>
+                <input 
+                  type="text" 
+                  className={inputClass} 
+                  placeholder="Full Name" 
+                  value={formData.name} 
+                  onChange={e => handleNameChange(e.target.value)} 
+                  onFocus={() => formData.name.trim().length > 1 && suggestions.length > 0 && setShowSuggestions(true)}
+                  required 
+                />
+                {showSuggestions && (
+                  <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                    {suggestions.map((p, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => selectSuggestion(p)}
+                        className="w-full px-4 py-3 text-left hover:bg-slate-50 flex flex-col border-b border-slate-50 last:border-0"
+                      >
+                        <span className="font-bold text-slate-800 text-sm">{p.name}</span>
+                        <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
+                          {p.guardian} • {p.contact}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <input type="text" className={inputClass} placeholder="Father/Guardian Name" value={formData.guardian} onChange={e => setFormData({...formData, guardian: e.target.value})} required />
               <input type="tel" className={inputClass} placeholder="Mobile Number" value={formData.contactNumber} onChange={e => setFormData({...formData, contactNumber: e.target.value})} required />
               <input type="text" className={inputClass} placeholder="Complete Address" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} required />

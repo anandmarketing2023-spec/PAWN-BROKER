@@ -19,12 +19,10 @@ import Ledger from './components/Ledger';
 import CustomerSheet from './components/CustomerSheet';
 import StorageSettings from './components/StorageSettings';
 import SettlementModal from './components/SettlementModal';
-import HelpGuide from './components/HelpGuide';
 import Modal from './components/Modal';
-import { Share2, HelpCircle } from 'lucide-react';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'entry' | 'ledger' | 'customers' | 'storage' | 'help'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'entry' | 'ledger' | 'customers' | 'storage'>('dashboard');
   const [loans, setLoans] = useState<LoanEntry[]>([]);
   const [backupConfig, setBackupConfig] = useState<BackupConfig>({ frequency: 'Daily', enabled: true });
   const [backups, setBackups] = useState<BackupEntry[]>([]);
@@ -235,23 +233,6 @@ const App: React.FC = () => {
     setActiveTab('entry');
   };
 
-  const handleShareApp = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'Balaji Pawn Brokers - Digital Ledger',
-          text: 'Manage your Gold & Silver loans securely with Balaji Ledger. Works offline and stores data locally.',
-          url: window.location.origin
-        });
-      } catch (err) {
-        // Ignore abort errors
-      }
-    } else {
-      navigator.clipboard.writeText(window.location.origin);
-      showModal("Link Copied", "App link copied to clipboard! Share it with your partners.", "success");
-    }
-  };
-
   const adjustSettlementDate = (loan: LoanEntry) => {
     setSettlingLoan(loan);
   };
@@ -318,7 +299,6 @@ const App: React.FC = () => {
             { id: 'ledger', icon: BookOpen, label: 'Ledger' },
             { id: 'customers', icon: Users, label: 'Customers' },
             { id: 'storage', icon: Settings, label: 'Storage' },
-            { id: 'help', icon: HelpCircle, label: 'Help Guide' },
           ].map((item) => (
             <button
               key={item.id}
@@ -338,14 +318,7 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        <div className="mt-auto pt-6 border-t border-slate-100 space-y-2">
-          <button 
-            onClick={handleShareApp}
-            className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-blue-600 hover:bg-blue-50 transition-all font-bold"
-          >
-            <Share2 size={20} />
-            <span>Share App</span>
-          </button>
+        <div className="mt-auto pt-6 border-t border-slate-100">
           <div className="px-4 py-2">
             <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">v1.0.0 Stable</p>
           </div>
@@ -361,18 +334,6 @@ const App: React.FC = () => {
           <span className="text-base font-bold text-slate-800">BALAJI PAWN BROKERS</span>
         </div>
         <div className="flex items-center space-x-2">
-          <button 
-            onClick={handleShareApp}
-            className="p-1 text-slate-400"
-          >
-            <Share2 size={20} />
-          </button>
-          <button 
-            onClick={() => setActiveTab('help')}
-            className={`p-1 transition-colors ${activeTab === 'help' ? 'text-yellow-600' : 'text-slate-400'}`}
-          >
-            <HelpCircle size={20} />
-          </button>
           <button 
             onClick={() => setActiveTab('storage')}
             className={`p-1 transition-colors ${activeTab === 'storage' ? 'text-yellow-600' : 'text-slate-400'}`}
@@ -391,6 +352,7 @@ const App: React.FC = () => {
               onSave={saveLoan} 
               nextSerial={nextAutoSerial} 
               editingLoan={editingLoan} 
+              loans={activeLoans}
               onCancel={() => {
                 setEditingLoan(null);
                 setActiveTab('ledger');
@@ -407,7 +369,6 @@ const App: React.FC = () => {
             />
           )}
           {activeTab === 'customers' && <CustomerSheet loans={activeLoans} />}
-          {activeTab === 'help' && <HelpGuide />}
           {activeTab === 'storage' && (
             <StorageSettings 
               loans={loans} 
