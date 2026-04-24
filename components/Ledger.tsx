@@ -1,7 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
-import { Search, Download, Filter, Trash2, Edit3, Calendar, Phone, CheckCircle2, MoreVertical, IndianRupee, Image as ImageIcon, X } from 'lucide-react';
+import { Search, Download, Filter, Trash2, Edit3, Calendar, Phone, CheckCircle2, MoreVertical, IndianRupee, Image as ImageIcon, X, History, AlertCircle } from 'lucide-react';
 import { LoanEntry } from '../types';
+import { calculateInterest, getCurrentPrincipal, isOldPending } from '../src/utils';
 
 interface LedgerProps {
   loans: LoanEntry[];
@@ -9,9 +10,11 @@ interface LedgerProps {
   onEdit: (loan: LoanEntry) => void;
   onUpdateStatus: (id: string) => void;
   onAdjustDate: (loan: LoanEntry) => void;
+  onAddTransaction: (loan: LoanEntry) => void;
+  appName: string;
 }
 
-const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus, onAdjustDate }) => {
+const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus, onAdjustDate, onAddTransaction, appName }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
@@ -23,15 +26,6 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
       loan.description.toLowerCase().includes(searchTerm.toLowerCase())
     ).sort((a, b) => b.serialNumber - a.serialNumber);
   }, [loans, searchTerm]);
-
-  const calculateInterest = (amount: number, rate: number, date: string, closeDate?: string) => {
-    const start = new Date(date);
-    const end = closeDate ? new Date(closeDate) : new Date();
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    const totalMonths = Math.max(1, Math.ceil(diffDays / 30)); 
-    return (amount * rate / 100) * totalMonths;
-  };
 
   const handleExportCSV = () => {
     if (filteredLoans.length === 0) return;
@@ -63,8 +57,9 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
+    const safeName = appName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
     link.setAttribute('href', url);
-    link.setAttribute('download', `balaji_ledger_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `${safeName}_ledger_${new Date().toISOString().split('T')[0]}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -132,9 +127,17 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
 
             <div className="mb-4 flex gap-4">
               <div className="flex-1">
-                <h3 className={`text-base font-bold ${loan.status === 'Closed' ? 'text-slate-400 line-through' : 'text-slate-900'}`}>{loan.name}</h3>
+                <div className="flex flex-col">
+                  <h3 className={`text-base font-bold ${loan.status === 'Closed' ? 'text-slate-400 line-through' : (isOldPending(loan) ? 'text-red-600' : 'text-slate-900')}`}>{loan.name}</h3>
+                  {isOldPending(loan) && (
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <AlertCircle size={10} className="text-red-500" />
+                      <span className="text-[9px] font-black text-red-500 uppercase tracking-tighter bg-red-50 px-1.5 py-0.5 rounded border border-red-100">Old Pending Girvi</span>
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center text-xs text-slate-500 mt-1 space-x-3">
-                  <span className="flex items-center gap-1"><Phone size={12} /> {loan.contactNumber}</span>
+                  <span className={`flex items-center gap-1 ${isOldPending(loan) ? 'text-red-500 font-bold' : ''}`}><Phone size={12} /> {loan.contactNumber}</span>
                   <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(loan.date).toLocaleDateString()}</span>
                 </div>
               </div>
@@ -152,23 +155,42 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
               <div>
                 <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Financials</p>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-lg font-black text-slate-800">₹{loan.amount.toLocaleString()}</span>
-                  <span className="text-xs font-bold text-green-600">
-                    +₹{(loan.status === 'Closed' && loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                  </span>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black text-slate-800">P: ₹{getCurrentPrincipal(loan).toLocaleString()}</span>
+                    <span className="text-[8px] text-slate-400 font-bold">Total: ₹{(getCurrentPrincipal(loan) + (loan.status === 'Closed' && loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan))).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <span className="text-xs font-bold text-green-600">
+                      +₹{(loan.status === 'Closed' && loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </span>
+                    {loan.transactions?.some(t => t.type === 'Interest Payment') && (
+                      <span className="text-[7px] font-black text-blue-500 uppercase">
+                        Paid: ₹{loan.transactions.filter(t => t.type === 'Interest Payment').reduce((sum, t) => sum + t.amount, 0).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
               
-              <button 
-                onClick={() => onUpdateStatus(loan.id)}
-                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-md active:scale-90 ${
-                  loan.status === 'Active' 
-                  ? 'bg-blue-500 text-white shadow-blue-200' 
-                  : 'bg-red-600 text-white shadow-red-200'
-                }`}
-              >
-                <CheckCircle2 size={24} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => onAddTransaction(loan)}
+                  className="w-10 h-10 rounded-full flex items-center justify-center bg-slate-800 text-white shadow-sm active:scale-90"
+                  title="Transactions"
+                >
+                  <History size={18} />
+                </button>
+                <button 
+                  onClick={() => onUpdateStatus(loan.id)}
+                  className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-md active:scale-90 ${
+                    loan.status === 'Active' 
+                    ? 'bg-blue-500 text-white shadow-blue-200' 
+                    : 'bg-red-600 text-white shadow-red-200'
+                  }`}
+                >
+                  <CheckCircle2 size={24} />
+                </button>
+              </div>
             </div>
             
             <div className="mt-3 flex items-center justify-between">
@@ -237,8 +259,16 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
                       </div>
                     )}
                     <div className="flex flex-col">
-                      <span className={`font-bold ${loan.status === 'Closed' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{loan.name}</span>
-                      <div className="flex items-center space-x-1 mt-1 text-xs text-slate-500"><Phone size={10} /> {loan.contactNumber}</div>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold ${loan.status === 'Closed' ? 'text-slate-400 line-through' : (isOldPending(loan) ? 'text-red-600' : 'text-slate-800')}`}>{loan.name}</span>
+                        {isOldPending(loan) && (
+                          <span className="text-[8px] font-black text-red-500 uppercase tracking-widest bg-red-50 px-1.5 py-0.5 rounded border border-red-100 flex items-center gap-0.5">
+                            <AlertCircle size={8} />
+                            Old Pending
+                          </span>
+                        )}
+                      </div>
+                      <div className={`flex items-center space-x-1 mt-1 text-xs ${isOldPending(loan) ? 'text-red-500 font-bold' : 'text-slate-500'}`}><Phone size={10} /> {loan.contactNumber}</div>
                       <div className="flex items-center space-x-1 mt-0.5 text-[10px] text-slate-400 font-bold uppercase"><Calendar size={10} /> {new Date(loan.date).toLocaleDateString()}</div>
                     </div>
                   </div>
@@ -265,16 +295,35 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
                   </div>
                 </td>
                 <td className="px-6 py-4 text-right">
-                  <span className={`font-bold ${loan.status === 'Closed' ? 'text-slate-400' : 'text-slate-800'}`}>₹{loan.amount.toLocaleString()}</span>
-                  <div className="text-[10px] text-slate-400">{loan.interestRate}% p.m.</div>
+                  <div className="flex flex-col items-end">
+                    <span className={`font-bold ${loan.status === 'Closed' ? 'text-slate-400' : 'text-slate-800'}`}>₹{getCurrentPrincipal(loan).toLocaleString()}</span>
+                    {loan.amount !== getCurrentPrincipal(loan) && (
+                      <span className="text-[8px] text-slate-400 italic">Was ₹{loan.amount.toLocaleString()}</span>
+                    )}
+                    <div className="text-[10px] text-slate-400">{loan.interestRate}% p.m.</div>
+                  </div>
                 </td>
                 <td className="px-6 py-4 text-right">
-                  <span className={`text-sm font-bold ${loan.status === 'Closed' ? 'text-slate-400' : 'text-green-600'}`}>
-                    +₹{(loan.status === 'Closed' && loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                  </span>
+                  <div className="flex flex-col items-end">
+                    <span className={`text-sm font-bold ${loan.status === 'Closed' ? 'text-slate-400' : 'text-green-600'}`}>
+                      +₹{(loan.status === 'Closed' && loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </span>
+                    {loan.transactions?.some(t => t.type === 'Interest Payment') && (
+                      <span className="text-[9px] font-black text-blue-500 uppercase">
+                        Paid: ₹{loan.transactions.filter(t => t.type === 'Interest Payment').reduce((sum, t) => sum + t.amount, 0).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex items-center justify-center space-x-2">
+                    <button 
+                      onClick={() => onAddTransaction(loan)}
+                      className="p-2 rounded-full transition-all text-slate-600 bg-slate-100 hover:bg-slate-200"
+                      title="Transactions"
+                    >
+                      <History size={20} />
+                    </button>
                     <button 
                       onClick={() => onUpdateStatus(loan.id)}
                       className={`p-2 rounded-full transition-all transform active:scale-90 shadow-sm border ${

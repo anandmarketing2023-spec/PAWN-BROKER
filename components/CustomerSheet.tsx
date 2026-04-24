@@ -1,7 +1,8 @@
 
 import React, { useMemo, useState } from 'react';
-import { Search, IndianRupee, Briefcase, ChevronRight, User, CheckCircle } from 'lucide-react';
+import { Search, IndianRupee, Briefcase, ChevronRight, User, CheckCircle, AlertCircle } from 'lucide-react';
 import { LoanEntry } from '../types';
+import { getCurrentPrincipal, isOldPending } from '../src/utils';
 
 interface CustomerSheetProps {
   loans: LoanEntry[];
@@ -17,6 +18,7 @@ interface CustomerSummary {
   activePrincipal: number;
   totalLoans: number;
   totalActiveLoans: number;
+  hasOldPending: boolean;
   items: {
     metalType: string;
     totalWeight: number;
@@ -45,6 +47,7 @@ const CustomerSheet: React.FC<CustomerSheetProps> = ({ loans }) => {
           activePrincipal: 0,
           totalLoans: 0,
           totalActiveLoans: 0,
+          hasOldPending: false,
           items: []
         });
       }
@@ -54,8 +57,11 @@ const CustomerSheet: React.FC<CustomerSheetProps> = ({ loans }) => {
       summary.totalLoans += 1;
       
       if (loan.status === 'Active') {
-        summary.activePrincipal += loan.amount;
+        summary.activePrincipal += getCurrentPrincipal(loan);
         summary.totalActiveLoans += 1;
+        if (isOldPending(loan)) {
+          summary.hasOldPending = true;
+        }
       }
 
       // Group items
@@ -127,8 +133,16 @@ const CustomerSheet: React.FC<CustomerSheetProps> = ({ loans }) => {
                     <User size={24} />
                   </div>
                   <div>
-                    <h3 className={`text-xl font-bold ${customer.totalActiveLoans > 0 ? 'text-slate-800' : 'text-slate-400'}`}>{customer.name}</h3>
-                    <p className="text-sm text-slate-500 font-medium">{customer.guardian}</p>
+                    <div className="flex items-center gap-2">
+                      <h3 className={`text-xl font-bold ${customer.totalActiveLoans > 0 ? (customer.hasOldPending ? 'text-red-600' : 'text-slate-800') : 'text-slate-400'}`}>{customer.name}</h3>
+                      {customer.hasOldPending && (
+                        <div className="flex items-center gap-1">
+                          <AlertCircle size={12} className="text-red-500" />
+                          <span className="text-[10px] font-black text-red-500 uppercase tracking-tight bg-red-50 px-2 py-0.5 rounded border border-red-100">Old Pending</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className={`text-sm font-medium ${customer.hasOldPending ? 'text-red-400' : 'text-slate-500'}`}>{customer.guardian}</p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -150,7 +164,7 @@ const CustomerSheet: React.FC<CustomerSheetProps> = ({ loans }) => {
                     <span>ALL PAID</span>
                   </div>
                 )}
-                <div className="text-xs text-slate-400">
+                <div className={`text-xs ${customer.hasOldPending ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
                   {customer.contactNumber}
                 </div>
               </div>

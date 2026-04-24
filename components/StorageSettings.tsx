@@ -27,6 +27,8 @@ interface StorageSettingsProps {
   backupConfig: BackupConfig;
   onBackupConfigChange: (config: BackupConfig) => void;
   backups: BackupEntry[];
+  appName: string;
+  onAppNameChange: (name: string) => void;
   onRestoreBackup: (data: LoanEntry[]) => void;
   onDeleteBackup: (id: string) => void;
   onManualBackup: () => void;
@@ -40,6 +42,8 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
   backupConfig,
   onBackupConfigChange,
   backups,
+  appName,
+  onAppNameChange,
   onRestoreBackup,
   onDeleteBackup,
   onManualBackup,
@@ -174,7 +178,8 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `balaji_ledger_${new Date().toISOString().split('T')[0]}.csv`);
+    const safeName = appName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    link.setAttribute('download', `${safeName}_ledger_${new Date().toISOString().split('T')[0]}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -311,15 +316,37 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
       </div>
 
       {/* Auto Backup Section */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-        <BackupManager 
-          config={backupConfig} 
-          onConfigChange={onBackupConfigChange} 
-          backups={backups} 
-          onRestore={onRestoreBackup} 
-          onDeleteBackup={onDeleteBackup} 
-          onManualBackup={onManualBackup} 
-        />
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-6">
+        <div>
+          <h3 className="font-bold text-slate-800 mb-3 flex items-center">
+            <Plus size={18} className="mr-2 text-yellow-500" />
+            Application Settings
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Business Name (App Title)</label>
+              <input 
+                type="text" 
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all outline-none text-base font-bold text-slate-800" 
+                value={appName} 
+                onChange={e => onAppNameChange(e.target.value)} 
+                placeholder="Enter Business Name"
+              />
+              <p className="text-[10px] text-slate-400 mt-2 ml-1 italic">This name will be used in the header, sidebar, and export files.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-6 border-t border-slate-100">
+          <BackupManager 
+            config={backupConfig} 
+            onConfigChange={onBackupConfigChange} 
+            backups={backups} 
+            onRestore={onRestoreBackup} 
+            onDeleteBackup={onDeleteBackup} 
+            onManualBackup={onManualBackup} 
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -498,7 +525,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
       <div className="text-center py-4">
         <p className="text-slate-400 text-[10px] flex items-center justify-center uppercase tracking-widest font-bold">
           <Info size={12} className="mr-1" />
-          Version 1.0.0 • Balaji Pawn Brokers
+          Version 1.0.0 • {appName}
         </p>
       </div>
 

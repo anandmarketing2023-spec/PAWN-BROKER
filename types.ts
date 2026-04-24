@@ -1,6 +1,14 @@
 
 export type MetalType = 'Gold' | 'Silver' | 'Both';
 
+export interface Transaction {
+  id: string;
+  date: string;
+  amount: number;
+  type: 'Loan Addition' | 'Principal Payment' | 'Interest Payment';
+  remark?: string;
+}
+
 export interface LoanEntry {
   id: string;
   serialNumber: number;
@@ -19,12 +27,14 @@ export interface LoanEntry {
   silverWeight?: number;
   silverNetWeight?: number;
   remark: string;
-  amount: number;
+  amount: number; // This should be considered the CURRENT principal or INITIAL principal? 
+  // Let's keep it as initial principal and use transactions to calculate current.
   interestRate: number;
   status: 'Active' | 'Closed';
   settledInterest?: number;
   imageUrl?: string;
   isDeleted?: boolean;
+  transactions?: Transaction[];
 }
 
 export interface BackupConfig {

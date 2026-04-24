@@ -1,34 +1,70 @@
 import React, { useState } from 'react';
-import { X, Calendar, CheckCircle2, IndianRupee, Printer } from 'lucide-react';
+import { X, Calendar, CheckCircle2, IndianRupee, Printer, AlertCircle } from 'lucide-react';
 import { LoanEntry } from '../types';
+import { calculateInterest, getCurrentPrincipal } from '../src/utils';
 
 interface SettlementModalProps {
   loan: LoanEntry;
   onClose: () => void;
   onConfirm: (id: string, date: string, settledInterest: number) => void;
+  onRenew: (oldLoanId: string, settlementDate: string, settledInterest: number, newLoanDetails: { amount: number, date: string, interestRate: number }) => void;
 }
 
-const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConfirm }) => {
+const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConfirm, onRenew }) => {
   const [settlementDate, setSettlementDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isRenewMode, setIsRenewMode] = useState(false);
+  
+  // New loan fields for Renewal
+  const [newAmount, setNewAmount] = useState(getCurrentPrincipal(loan));
+  const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newInterestRate, setNewInterestRate] = useState(loan.interestRate);
 
-  const calculateInterest = (amount: number, rate: number, date: string, closeDate: string) => {
-    const start = new Date(date);
-    const end = new Date(closeDate);
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    const totalMonths = Math.max(1, Math.ceil(diffDays / 30)); 
-    return (amount * rate / 100) * totalMonths;
+  const previousInterestPaid = (loan.transactions || [])
+    .filter(t => t.type === 'Interest Payment')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const getGrossInterest = (loan: LoanEntry, date: string) => {
+    // We add back the paid interest to get the gross accrued, using our helper
+    return calculateInterest(loan, date) + previousInterestPaid;
   };
 
-  const initialInterest = calculateInterest(loan.amount, loan.interestRate, loan.date, settlementDate);
-  const [settledInterest, setSettledInterest] = useState(initialInterest);
+  const initialPendingInterest = calculateInterest(loan, settlementDate);
+  const [settledInterest, setSettledInterest] = useState(initialPendingInterest);
 
   // Update interest when date changes
   React.useEffect(() => {
-    setSettledInterest(calculateInterest(loan.amount, loan.interestRate, loan.date, settlementDate));
-  }, [settlementDate, loan.amount, loan.interestRate, loan.date]);
+    setSettledInterest(calculateInterest(loan, settlementDate));
+    setIsConfirmingUnderpay(false);
+  }, [settlementDate, loan]);
 
-  const total = loan.amount + Number(settledInterest);
+  React.useEffect(() => {
+    if (!isUnderpaid) setIsConfirmingUnderpay(false);
+  }, [settledInterest, initialPendingInterest]);
+
+  const [isConfirmingUnderpay, setIsConfirmingUnderpay] = useState(false);
+
+  const currentPrincipal = getCurrentPrincipal(loan);
+  const total = currentPrincipal + Number(settledInterest);
+  const grossInterest = getGrossInterest(loan, settlementDate);
+
+  const isUnderpaid = settledInterest < initialPendingInterest - 1; // Tolerance for floating point
+
+  const handleConfirm = () => {
+    if (isUnderpaid && !isConfirmingUnderpay) {
+      setIsConfirmingUnderpay(true);
+      return;
+    }
+    
+    if (isRenewMode) {
+      onRenew(loan.id, settlementDate, settledInterest, {
+        amount: newAmount,
+        date: newDate,
+        interestRate: newInterestRate
+      });
+    } else {
+      onConfirm(loan.id, settlementDate, settledInterest);
+    }
+  };
 
   const handlePrint = () => {
     const printWindow = window.open('', '_blank');
@@ -80,8 +116,8 @@ const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConf
 
           <div class="financials">
             <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-              <span>Principal Amount</span>
-              <span>₹${loan.amount.toLocaleString()}</span>
+              <span>Current Principal</span>
+              <span>₹${currentPrincipal.toLocaleString()}</span>
             </div>
             <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
               <span>Interest (${loan.interestRate}% p.m.)</span>
@@ -143,28 +179,110 @@ const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConf
           {/* Financial Summary */}
           <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
             <div className="flex justify-between items-center">
-              <span className="text-slate-500 text-sm">Principal Amount</span>
-              <span className="font-bold text-slate-800">₹{loan.amount.toLocaleString()}</span>
+              <span className="text-slate-500 text-sm">Principal (Current)</span>
+              <span className="font-bold text-slate-800">₹{currentPrincipal.toLocaleString()}</span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-500 text-sm">Interest ({loan.interestRate}% p.m.)</span>
+            
+            <div className="pt-2 border-t border-slate-100 space-y-2">
+              <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                <span>Accrued Interest</span>
+                <span>₹{grossInterest.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+              </div>
+              <div className="flex justify-between items-center text-[10px] font-bold text-blue-500 uppercase tracking-wider">
+                <span>Interest Already Paid</span>
+                <span>-₹{previousInterestPaid.toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+              <span className="text-slate-500 text-sm">Interest to Settle Now</span>
               <div className="flex items-center gap-2">
                 <span className="text-slate-400 text-xs">₹</span>
                 <input 
                   type="number"
                   value={settledInterest}
                   onChange={(e) => setSettledInterest(Number(e.target.value))}
-                  className="w-24 px-2 py-1 bg-white border border-slate-200 rounded-lg text-right font-bold text-green-600 focus:ring-2 focus:ring-yellow-500 outline-none transition-all"
+                  className={`w-24 px-2 py-1 bg-white border rounded-lg text-right font-bold focus:ring-2 focus:ring-yellow-500 outline-none transition-all ${
+                    isUnderpaid ? 'text-red-600 border-red-200' : 'text-green-600 border-slate-200'
+                  }`}
                 />
               </div>
             </div>
+
+            {isUnderpaid && (
+              <div className="bg-red-50 p-2 rounded-lg border border-red-100 flex items-start gap-2">
+                <AlertCircle size={14} className="text-red-500 shrink-0 mt-0.5" />
+                <p className="text-[10px] text-red-600 font-bold leading-tight">
+                  Warning: The interest payment entered is less than the calculated pending amount (₹{initialPendingInterest.toLocaleString(undefined, { maximumFractionDigits: 0 })}).
+                </p>
+              </div>
+            )}
+
             <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
-              <span className="text-slate-800 font-bold">Total Payable</span>
+              <span className="text-slate-800 font-bold">Total Final Settlement</span>
               <div className="flex items-center text-xl font-black text-yellow-600">
                 <IndianRupee size={20} />
                 <span>{total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
               </div>
             </div>
+          </div>
+
+          {/* Renew Toggle */}
+          <div className="bg-blue-50 border-2 border-blue-100 rounded-2xl p-4">
+            <label className="flex items-center justify-between cursor-pointer">
+              <div className="flex flex-col">
+                <span className="text-sm font-black text-blue-700 uppercase tracking-tight">Renew This Article</span>
+                <span className="text-[10px] text-blue-500 font-bold uppercase">Close old & start new account</span>
+              </div>
+              <div className="relative inline-flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  className="sr-only peer" 
+                  checked={isRenewMode}
+                  onChange={() => setIsRenewMode(!isRenewMode)}
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </div>
+            </label>
+
+            {isRenewMode && (
+              <div className="mt-4 pt-4 border-t border-blue-200 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1 ml-1">New Amount</label>
+                    <div className="relative">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400">
+                        <IndianRupee size={16} />
+                      </div>
+                      <input 
+                        type="number"
+                        value={newAmount}
+                        onChange={(e) => setNewAmount(Number(e.target.value))}
+                        className="w-full pl-9 pr-4 py-2 bg-white border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold text-slate-800"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1 ml-1">New Int. Rate %</label>
+                    <input 
+                      type="number"
+                      value={newInterestRate}
+                      onChange={(e) => setNewInterestRate(Number(e.target.value))}
+                      className="w-full px-4 py-2 bg-white border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm font-bold text-slate-800"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1 ml-1">New Entry Date</label>
+                  <input 
+                    type="date"
+                    value={newDate}
+                    onChange={(e) => setNewDate(e.target.value)}
+                    className="w-full px-4 py-2 bg-white border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-800"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex gap-3 pt-2">
@@ -176,11 +294,24 @@ const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConf
               <Printer size={20} />
             </button>
             <button 
-              onClick={() => onConfirm(loan.id, settlementDate, settledInterest)}
-              className="flex-1 px-4 py-3 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl shadow-lg shadow-yellow-100 flex items-center justify-center gap-2 transition-all active:scale-95"
+              onClick={handleConfirm}
+              className={`flex-1 px-4 py-3 font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 ${
+                isConfirmingUnderpay 
+                ? 'bg-red-600 hover:bg-red-700 shadow-red-100 text-white animate-pulse' 
+                : 'bg-yellow-500 hover:bg-yellow-600 text-white shadow-yellow-100'
+              }`}
             >
-              <CheckCircle2 size={20} />
-              Confirm Payment
+              {isConfirmingUnderpay ? (
+                <>
+                  <AlertCircle size={20} />
+                  Confirm Underpayment?
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 size={20} />
+                  {isRenewMode ? 'Settle & Renew' : 'Confirm Payment'}
+                </>
+              )}
             </button>
           </div>
         </div>

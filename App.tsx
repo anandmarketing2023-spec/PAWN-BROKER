@@ -19,16 +19,20 @@ import Ledger from './components/Ledger';
 import CustomerSheet from './components/CustomerSheet';
 import StorageSettings from './components/StorageSettings';
 import SettlementModal from './components/SettlementModal';
+import TransactionModal from './components/TransactionModal';
 import Modal from './components/Modal';
+import { Transaction } from './types';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'entry' | 'ledger' | 'customers' | 'storage'>('dashboard');
   const [loans, setLoans] = useState<LoanEntry[]>([]);
   const [backupConfig, setBackupConfig] = useState<BackupConfig>({ frequency: 'Daily', enabled: true });
   const [backups, setBackups] = useState<BackupEntry[]>([]);
+  const [appName, setAppName] = useState<string>('BALAJI PAWN BROKERS');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editingLoan, setEditingLoan] = useState<LoanEntry | null>(null);
   const [settlingLoan, setSettlingLoan] = useState<LoanEntry | null>(null);
+  const [transactingLoan, setTransactingLoan] = useState<LoanEntry | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Modal State
@@ -77,6 +81,11 @@ const App: React.FC = () => {
           }
         }
 
+        const savedAppName = await getConfig('app_name');
+        if (savedAppName) {
+          setAppName(savedAppName);
+        }
+
         const savedBackups = await getAllBackups();
         if (savedBackups.length > 0) {
           setBackups(savedBackups);
@@ -109,6 +118,12 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!isLoading) {
+      saveConfig('app_name', appName);
+    }
+  }, [appName, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading) {
       saveBackupsToDB(backups);
     }
   }, [backups, isLoading]);
@@ -119,11 +134,16 @@ const App: React.FC = () => {
     }
   }, [loans, isLoading]);
 
+  useEffect(() => {
+    document.title = `${appName} - Digital Ledger`;
+  }, [appName]);
+
   const exportData = () => {
     const data = {
       loans,
       backupConfig,
       backups,
+      appName,
       version: '1.0',
       exportDate: new Date().toISOString()
     };
@@ -131,7 +151,8 @@ const App: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Balaji_Ledger_Backup_${new Date().toISOString().split('T')[0]}.json`;
+    const safeName = appName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    a.download = `${safeName}_backup_${new Date().toISOString().split('T')[0]}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -155,10 +176,12 @@ const App: React.FC = () => {
               setLoans(data.loans);
               if (data.backupConfig) setBackupConfig(data.backupConfig);
               if (data.backups) setBackups(data.backups);
+              if (data.appName) setAppName(data.appName);
               
               await saveLoans(data.loans);
               if (data.backupConfig) await saveConfig('backup_config', data.backupConfig);
               if (data.backups) await saveBackupsToDB(data.backups);
+              if (data.appName) await saveConfig('app_name', data.appName);
               
               showModal("Import Successful", "Your data has been restored from the backup file.", "success");
             }
@@ -236,6 +259,54 @@ const App: React.FC = () => {
   const adjustSettlementDate = (loan: LoanEntry) => {
     setSettlingLoan(loan);
   };
+  
+  const handleSaveTransaction = (id: string, transaction: Transaction) => {
+    setLoans(loans.map(l => {
+      if (l.id === id) {
+        const transactions = [...(l.transactions || []), transaction];
+        return { ...l, transactions };
+      }
+      return l;
+    }));
+    showModal("Success", "Transaction saved successfully!", "success");
+  };
+
+  const handleRenew = (oldLoanId: string, settlementDate: string, settledInterest: number, newDetails: { amount: number, date: string, interestRate: number }) => {
+    setLoans(prevLoans => {
+      const updatedLoans = prevLoans.map(l => {
+        if (l.id === oldLoanId) {
+          return { ...l, status: 'Closed' as const, closeDate: settlementDate, settledInterest };
+        }
+        return l;
+      });
+
+      const oldLoan = prevLoans.find(l => l.id === oldLoanId);
+      if (!oldLoan) return updatedLoans;
+
+      const nextSerial = updatedLoans.filter(l => !l.isDeleted).length > 0 
+        ? Math.max(...updatedLoans.filter(l => !l.isDeleted).map(l => l.serialNumber)) + 1 
+        : 1;
+
+      const newLoan: LoanEntry = {
+        ...oldLoan,
+        id: crypto.randomUUID(),
+        serialNumber: nextSerial,
+        date: newDetails.date,
+        amount: newDetails.amount,
+        interestRate: newDetails.interestRate,
+        status: 'Active',
+        closeDate: undefined,
+        settledInterest: undefined,
+        transactions: [], // Reset transactions for new loan
+        remark: `${oldLoan.remark ? oldLoan.remark + ' | ' : ''}Renewed from #${oldLoan.serialNumber}`
+      };
+
+      return [newLoan, ...updatedLoans];
+    });
+
+    setSettlingLoan(null);
+    showModal("Success", "Account renewed successfully! New entry created.", "success");
+  };
 
   const nextAutoSerial = loans.filter(l => !l.isDeleted).length > 0 
     ? Math.max(...loans.filter(l => !l.isDeleted).map(l => l.serialNumber)) + 1 
@@ -271,7 +342,7 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="mt-8 text-center">
-          <h1 className="text-2xl font-black text-white tracking-tighter uppercase italic">Balaji Ledger</h1>
+          <h1 className="text-2xl font-black text-white tracking-tighter uppercase italic">{appName.split(' ')[0]} Ledger</h1>
           <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.3em] mt-2">Secure Digital Girvi</p>
         </div>
         <div className="absolute bottom-10 text-slate-600 text-[10px] font-bold uppercase tracking-widest">
@@ -289,7 +360,7 @@ const App: React.FC = () => {
           <div className="bg-yellow-500 p-2 rounded-xl text-white shadow-md">
             <TrendingUp size={24} />
           </div>
-          <span className="text-xl font-bold text-slate-800 tracking-tight leading-tight">BALAJI PAWN BROKERS</span>
+          <span className="text-xl font-bold text-slate-800 tracking-tight leading-tight">{appName}</span>
         </div>
 
         <nav className="space-y-2 flex-grow">
@@ -331,7 +402,7 @@ const App: React.FC = () => {
           <div className="bg-yellow-500 p-1.5 rounded-lg text-white">
             <TrendingUp size={20} />
           </div>
-          <span className="text-base font-bold text-slate-800">BALAJI PAWN BROKERS</span>
+          <span className="text-base font-bold text-slate-800">{appName}</span>
         </div>
         <div className="flex items-center space-x-2">
           <button 
@@ -366,6 +437,8 @@ const App: React.FC = () => {
               onEdit={handleEdit} 
               onUpdateStatus={closeLoan} 
               onAdjustDate={adjustSettlementDate}
+              onAddTransaction={setTransactingLoan}
+              appName={appName}
             />
           )}
           {activeTab === 'customers' && <CustomerSheet loans={activeLoans} />}
@@ -376,6 +449,8 @@ const App: React.FC = () => {
               backupConfig={backupConfig}
               onBackupConfigChange={setBackupConfig}
               backups={backups}
+              appName={appName}
+              onAppNameChange={setAppName}
               onRestoreBackup={(data) => {
                 showModal(
                   "Restore Backup",
@@ -412,6 +487,15 @@ const App: React.FC = () => {
             loan={settlingLoan} 
             onClose={() => setSettlingLoan(null)} 
             onConfirm={closeLoan} 
+            onRenew={handleRenew}
+          />
+        )}
+
+        {transactingLoan && (
+          <TransactionModal 
+            loan={transactingLoan} 
+            onClose={() => setTransactingLoan(null)} 
+            onSave={handleSaveTransaction} 
           />
         )}
 
@@ -426,15 +510,15 @@ const App: React.FC = () => {
       </main>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 h-16 flex items-center justify-around px-2 z-40 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex items-center justify-around px-2 z-40 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] pb-[env(safe-area-inset-bottom)] h-[calc(4rem+env(safe-area-inset-bottom))]">
         <BottomNavItem id="dashboard" icon={LayoutDashboard} label="Home" />
         <BottomNavItem id="ledger" icon={BookOpen} label="Ledger" />
-        <div className="relative -top-5">
+        <div className="relative -top-6">
            <button 
             onClick={() => { setActiveTab('entry'); setEditingLoan(null); }}
-            className={`p-4 rounded-full shadow-lg transition-transform active:scale-90 ${activeTab === 'entry' ? 'bg-yellow-600' : 'bg-yellow-500'} text-white border-4 border-slate-50`}
+            className={`p-4 rounded-full shadow-lg transition-transform active:scale-90 ${activeTab === 'entry' ? 'bg-yellow-600' : 'bg-yellow-500'} text-white border-4 border-slate-50 h-16 w-16 flex items-center justify-center`}
            >
-             <PlusCircle size={28} />
+             <PlusCircle size={32} />
            </button>
         </div>
         <BottomNavItem id="customers" icon={Users} label="Sheet" />

@@ -15,15 +15,17 @@ import {
   LineChart,
   Line
 } from 'recharts';
-import { IndianRupee, Users, Scale, AlertCircle, Coins, CheckCircle, TrendingUp, Calendar } from 'lucide-react';
+import { IndianRupee, Users, Scale, AlertCircle, Coins, CheckCircle, TrendingUp, Calendar, Eye, EyeOff } from 'lucide-react';
 import { LoanEntry } from '../types';
+import { calculateInterest, getCurrentPrincipal } from '../src/utils';
 
 interface DashboardProps {
   loans: LoanEntry[];
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
-  const [viewMode, setViewMode] = useState<'Monthly' | 'Weekly'>('Monthly');
+  const [viewMode, setViewMode] = useState<'Monthly' | 'Weekly' | 'Daily'>('Monthly');
+  const [showFinancials, setShowFinancials] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -33,26 +35,30 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
     const activeLoans = loans.filter(l => l.status === 'Active');
     const closedLoans = loans.filter(l => l.status === 'Closed');
     
-    const livePrincipal = activeLoans.reduce((acc, curr) => acc + curr.amount, 0);
-    const settledPrincipal = closedLoans.reduce((acc, curr) => acc + curr.amount, 0);
+    const livePrincipal = activeLoans.reduce((acc, curr) => acc + getCurrentPrincipal(curr), 0);
+    const settledPrincipal = closedLoans.reduce((acc, curr) => {
+      // Principal recovered for closed loans is their amount + additions - payments (should be 0 or original amount depending on tracking)
+      // Actually, for closed loans, they recovered the whole current principal at time of closing.
+      return acc + curr.amount; // Simplify to initial amount for now as it's the "Book Value"
+    }, 0);
     const totalPrincipal = loans.reduce((acc, curr) => acc + curr.amount, 0);
     
-    const liveInterestMonthly = activeLoans.reduce((acc, curr) => acc + (curr.amount * curr.interestRate / 100), 0);
+    const liveInterestMonthly = activeLoans.reduce((acc, curr) => acc + (getCurrentPrincipal(curr) * curr.interestRate / 100), 0);
     
-    const calculateInterest = (amount: number, rate: number, date: string, closeDate?: string) => {
-      const start = new Date(date);
-      const end = closeDate ? new Date(closeDate) : new Date();
-      const diffTime = Math.abs(end.getTime() - start.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      const totalMonths = Math.max(1, Math.ceil(diffDays / 30)); 
-      return (amount * rate / 100) * totalMonths;
-    };
-
-    const settledInterestTotal = closedLoans.reduce((acc, curr) => {
-      return acc + (curr.settledInterest !== undefined ? curr.settledInterest : calculateInterest(curr.amount, curr.interestRate, curr.date, curr.closeDate));
+    // Total interest collected from all sources
+    const interestCollectedTotal = loans.reduce((acc, loan) => {
+      const partialInterest = (loan.transactions || [])
+        .filter(t => t.type === 'Interest Payment')
+        .reduce((sum, t) => sum + t.amount, 0);
+      
+      const settlementInterest = loan.status === 'Closed' && loan.settledInterest !== undefined 
+        ? loan.settledInterest 
+        : 0; // Settled interest is usually the *remaining* interest paid at close
+      
+      return acc + partialInterest + settlementInterest;
     }, 0);
 
-    const totalInterestImpact = settledInterestTotal + liveInterestMonthly;
+    const totalInterestImpact = interestCollectedTotal + liveInterestMonthly;
     
     const avgInterestRate = activeLoans.length > 0 
       ? activeLoans.reduce((acc, curr) => acc + curr.interestRate, 0) / activeLoans.length 
@@ -108,17 +114,28 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
           monthlyDataMap.get(inKey.key)!.principalOut += loan.amount;
         }
 
+        (loan.transactions || []).forEach(tx => {
+          const txKey = getMonthKey(tx.date);
+          if (monthlyDataMap.has(txKey.key)) {
+            const data = monthlyDataMap.get(txKey.key)!;
+            if (tx.type === 'Loan Addition') data.principalOut += tx.amount;
+            if (tx.type === 'Principal Payment') data.principalIn += tx.amount;
+            if (tx.type === 'Interest Payment') data.interest += tx.amount;
+          }
+        });
+
         if (loan.status === 'Closed' && loan.closeDate) {
           const outKey = getMonthKey(loan.closeDate);
           if (monthlyDataMap.has(outKey.key)) {
-            monthlyDataMap.get(outKey.key)!.principalIn += loan.amount;
-            monthlyDataMap.get(outKey.key)!.interest += loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate);
+            const data = monthlyDataMap.get(outKey.key)!;
+            data.principalIn += getCurrentPrincipal(loan);
+            data.interest += loan.settledInterest || 0;
           }
         }
       });
 
       chartData = Array.from(monthlyDataMap.values()).sort((a, b) => a.timestamp - b.timestamp);
-    } else {
+    } else if (viewMode === 'Weekly') {
       // Weekly Data Calculation for Selected Month
       const [year, month] = selectedMonth.split('-').map(Number);
       const weeklyData: any[] = [
@@ -144,15 +161,62 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
         const inWeek = getWeekIndex(loan.date);
         if (inWeek !== -1) weeklyData[inWeek].principalOut += loan.amount;
 
+        (loan.transactions || []).forEach(tx => {
+          const txWeek = getWeekIndex(tx.date);
+          if (txWeek !== -1) {
+            if (tx.type === 'Loan Addition') weeklyData[txWeek].principalOut += tx.amount;
+            if (tx.type === 'Principal Payment') weeklyData[txWeek].principalIn += tx.amount;
+            if (tx.type === 'Interest Payment') weeklyData[txWeek].interest += tx.amount;
+          }
+        });
+
         if (loan.status === 'Closed' && loan.closeDate) {
           const outWeek = getWeekIndex(loan.closeDate);
           if (outWeek !== -1) {
-            weeklyData[outWeek].principalIn += loan.amount;
-            weeklyData[outWeek].interest += loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan.amount, loan.interestRate, loan.date, loan.closeDate);
+            weeklyData[outWeek].principalIn += getCurrentPrincipal(loan);
+            weeklyData[outWeek].interest += loan.settledInterest || 0;
           }
         }
       });
       chartData = weeklyData;
+    } else {
+      // Daily Data Calculation for Selected Month
+      const [year, month] = selectedMonth.split('-').map(Number);
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const dailyData: any[] = [];
+      
+      for (let i = 1; i <= daysInMonth; i++) {
+        dailyData.push({ label: i.toString(), principalOut: 0, principalIn: 0, interest: 0, fullDate: `${i} ${new Date(year, month - 1).toLocaleString('default', { month: 'short' })}` });
+      }
+
+      const getDayIndex = (dateStr: string) => {
+        const d = new Date(dateStr);
+        if (d.getFullYear() !== year || (d.getMonth() + 1) !== month) return -1;
+        return d.getDate() - 1;
+      };
+
+      loans.forEach(loan => {
+        const inDay = getDayIndex(loan.date);
+        if (inDay !== -1) dailyData[inDay].principalOut += loan.amount;
+
+        (loan.transactions || []).forEach(tx => {
+          const txDay = getDayIndex(tx.date);
+          if (txDay !== -1) {
+            if (tx.type === 'Loan Addition') dailyData[txDay].principalOut += tx.amount;
+            if (tx.type === 'Principal Payment') dailyData[txDay].principalIn += tx.amount;
+            if (tx.type === 'Interest Payment') dailyData[txDay].interest += tx.amount;
+          }
+        });
+
+        if (loan.status === 'Closed' && loan.closeDate) {
+          const outDay = getDayIndex(loan.closeDate);
+          if (outDay !== -1) {
+            dailyData[outDay].principalIn += getCurrentPrincipal(loan);
+            dailyData[outDay].interest += loan.settledInterest || 0;
+          }
+        }
+      });
+      chartData = dailyData;
     }
 
     return { 
@@ -160,7 +224,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
       settledPrincipal, 
       totalPrincipal, 
       liveInterestMonthly, 
-      settledInterestTotal, 
+      interestCollectedTotal, 
       totalInterestImpact,
       activeLoansCount: activeLoans.length, 
       closedLoansCount: closedLoans.length, 
@@ -184,7 +248,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
     return filtered.length > 0 ? filtered : [{ name: 'No Data', value: 1, color: '#f1f5f9' }];
   }, [stats.metalCounts]);
 
-  const StatCard = ({ label, value, icon: Icon, colorClass, subValue }: any) => (
+  const StatCard = ({ label, value, icon: Icon, colorClass, subValue, isSecret }: any) => (
     <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
       <div className="flex items-center gap-4">
         <div className={`p-3 rounded-xl ${colorClass}`}>
@@ -192,7 +256,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
         </div>
         <div>
           <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest leading-none mb-1.5">{label}</p>
-          <h3 className="text-xl font-black text-slate-800 leading-none">{value}</h3>
+          <h3 className={`text-xl font-black text-slate-800 leading-none ${isSecret && !showFinancials ? 'blur-md select-none' : ''}`}>
+            {isSecret && !showFinancials ? '₹00,00,000' : value}
+          </h3>
           {subValue && <p className="text-[10px] text-slate-400 mt-1 font-medium">{subValue}</p>}
         </div>
       </div>
@@ -210,27 +276,36 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
           <h1 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tight">Welcome back, Admin</h1>
           <p className="text-sm text-slate-500">Live monitoring of active collateralized assets</p>
         </div>
-        <div className="bg-green-50 px-4 py-2 rounded-xl border border-green-100 flex items-center space-x-2 w-full md:w-auto shadow-sm">
-          <CheckCircle className="text-green-500" size={18} />
-          <span className="text-xs font-black text-green-700 uppercase">{stats.closedLoansCount} Settlements Paid</span>
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <button 
+            onClick={() => setShowFinancials(!showFinancials)}
+            className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-slate-600 transition-colors shadow-sm"
+            title={showFinancials ? "Hide Totals" : "Show Totals"}
+          >
+            {showFinancials ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+          <div className="bg-green-50 px-4 py-2 rounded-xl border border-green-100 flex items-center space-x-2 flex-1 md:flex-none shadow-sm">
+            <CheckCircle className="text-green-500" size={18} />
+            <span className="text-xs font-black text-green-700 uppercase">{stats.closedLoansCount} Settlements Paid</span>
+          </div>
         </div>
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
-        <StatCard label="Live Principal" value={`₹${stats.livePrincipal.toLocaleString()}`} icon={IndianRupee} colorClass="bg-yellow-100 text-yellow-700" />
-        <StatCard label="Settled Principal" value={`₹${stats.settledPrincipal.toLocaleString()}`} icon={CheckCircle} colorClass="bg-blue-100 text-blue-700" />
-        <StatCard label="Total Principal" value={`₹${stats.totalPrincipal.toLocaleString()}`} icon={Coins} colorClass="bg-slate-100 text-slate-700" />
+        <StatCard label="Live Principal" value={`₹${stats.livePrincipal.toLocaleString()}`} icon={IndianRupee} colorClass="bg-yellow-100 text-yellow-700" isSecret />
+        <StatCard label="Settled Principal" value={`₹${stats.settledPrincipal.toLocaleString()}`} icon={CheckCircle} colorClass="bg-blue-100 text-blue-700" isSecret />
+        <StatCard label="Total Principal" value={`₹${stats.totalPrincipal.toLocaleString()}`} icon={Coins} colorClass="bg-slate-100 text-slate-700" isSecret />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
-        <StatCard label="Live Monthly Int." value={`₹${stats.liveInterestMonthly.toLocaleString()}`} icon={TrendingUp} colorClass="bg-green-100 text-green-700" />
-        <StatCard label="Settled Interest" value={`₹${stats.settledInterestTotal.toLocaleString()}`} icon={IndianRupee} colorClass="bg-emerald-100 text-emerald-700" />
-        <StatCard label="Total Int. Impact" value={`₹${stats.totalInterestImpact.toLocaleString()}`} icon={TrendingUp} colorClass="bg-slate-100 text-slate-700" subValue="Settled + Live Monthly" />
+        <StatCard label="Live Monthly Int." value={`₹${stats.liveInterestMonthly.toLocaleString()}`} icon={TrendingUp} colorClass="bg-green-100 text-green-700" isSecret />
+        <StatCard label="Int. Collected" value={`₹${stats.interestCollectedTotal.toLocaleString()}`} icon={IndianRupee} colorClass="bg-emerald-100 text-emerald-700" isSecret />
+        <StatCard label="Total Int. Impact" value={`₹${stats.totalInterestImpact.toLocaleString()}`} icon={TrendingUp} colorClass="bg-slate-100 text-slate-700" subValue="Settled + Live Monthly" isSecret />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
-        <StatCard label="Gold Stock" value={`${stats.goldWeight.toFixed(2)}g`} icon={Coins} colorClass="bg-yellow-100 text-yellow-600" />
-        <StatCard label="Silver Stock" value={`${stats.silverWeight.toFixed(2)}g`} icon={Scale} colorClass="bg-slate-200 text-slate-600" />
+        <StatCard label="Gold Stock" value={`${stats.goldWeight.toFixed(2)}g`} icon={Coins} colorClass="bg-yellow-100 text-yellow-600" isSecret />
+        <StatCard label="Silver Stock" value={`${stats.silverWeight.toFixed(2)}g`} icon={Scale} colorClass="bg-slate-200 text-slate-600" isSecret />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -277,7 +352,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold opacity-80 uppercase">Recovery Rate</span>
-                <span className="font-black">{stats.recoveryRate.toFixed(1)}%</span>
+                <span className={`font-black ${!showFinancials ? 'blur-sm select-none' : ''}`}>
+                  {!showFinancials ? '00.0%' : `${stats.recoveryRate.toFixed(1)}%`}
+                </span>
               </div>
            </div>
 
@@ -298,11 +375,11 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
                 Performance Report
               </h3>
               <p className="text-xs text-slate-400 mt-1">
-                {viewMode === 'Monthly' ? 'Last 6 months overview' : `Weekly breakdown for ${new Date(selectedMonth).toLocaleString('default', { month: 'long', year: 'numeric' })}`}
+                {viewMode === 'Monthly' ? 'Last 6 months overview' : `Breakdown for ${new Date(selectedMonth).toLocaleString('default', { month: 'long', year: 'numeric' })}`}
               </p>
             </div>
             
-            <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl border border-slate-100">
+            <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl border border-slate-100 flex-wrap">
               <button 
                 onClick={() => setViewMode('Monthly')}
                 className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'Monthly' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
@@ -315,9 +392,15 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
               >
                 Weekly
               </button>
+              <button 
+                onClick={() => setViewMode('Daily')}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'Daily' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Daily
+              </button>
             </div>
 
-            {viewMode === 'Weekly' && (
+            {(viewMode === 'Weekly' || viewMode === 'Daily') && (
               <input 
                 type="month" 
                 className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-yellow-500 transition-all"
@@ -326,7 +409,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
               />
             )}
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
               <span className="text-[10px] font-bold text-slate-500 uppercase">Principal Out</span>
@@ -342,7 +425,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
           </div>
         </div>
 
-        <div className="h-[300px] w-full">
+        <div className={`h-[300px] w-full transition-all duration-500 ${!showFinancials ? 'blur-xl grayscale select-none pointer-events-none' : ''}`}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={stats.chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -350,8 +433,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
                 dataKey="label" 
                 axisLine={false} 
                 tickLine={false} 
-                tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }}
+                tick={{ fill: '#94a3b8', fontSize: viewMode === 'Daily' ? 8 : 10, fontWeight: 600 }}
                 dy={10}
+                interval={viewMode === 'Daily' ? 1 : 0}
               />
               <YAxis 
                 axisLine={false} 
@@ -362,11 +446,15 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
               <Tooltip 
                 cursor={{ fill: '#f8fafc' }}
                 contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
+                labelFormatter={(label, payload) => {
+                  if (viewMode === 'Daily' && payload[0]) return payload[0].payload.fullDate;
+                  return label;
+                }}
                 formatter={(value: any) => [`₹${value.toLocaleString()}`, '']}
               />
-              <Bar dataKey="principalOut" name="Principal Out (New)" fill="#FACC15" radius={[4, 4, 0, 0]} barSize={viewMode === 'Monthly' ? 20 : 30} />
-              <Bar dataKey="principalIn" name="Principal In (Settled)" fill="#1e293b" radius={[4, 4, 0, 0]} barSize={viewMode === 'Monthly' ? 20 : 30} />
-              <Bar dataKey="interest" name="Interest Received" fill="#22c55e" radius={[4, 4, 0, 0]} barSize={viewMode === 'Monthly' ? 20 : 30} />
+              <Bar dataKey="principalOut" name="Principal Out (New)" fill="#FACC15" radius={[4, 4, 0, 0]} barSize={viewMode === 'Monthly' ? 20 : (viewMode === 'Weekly' ? 30 : 8)} />
+              <Bar dataKey="principalIn" name="Principal In (Settled)" fill="#1e293b" radius={[4, 4, 0, 0]} barSize={viewMode === 'Monthly' ? 20 : (viewMode === 'Weekly' ? 30 : 8)} />
+              <Bar dataKey="interest" name="Interest Received" fill="#22c55e" radius={[4, 4, 0, 0]} barSize={viewMode === 'Monthly' ? 20 : (viewMode === 'Weekly' ? 30 : 8)} />
             </BarChart>
           </ResponsiveContainer>
         </div>
