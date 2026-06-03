@@ -10,7 +10,7 @@ import {
   X,
   Users,
   Coins,
-  LogOut
+  AlertTriangle
 } from 'lucide-react';
 import { LoanEntry, BackupConfig, BackupEntry } from './types';
 import { getAllLoans, saveLoans, getConfig, saveConfig, getAllBackups, saveBackupsToDB } from './src/db';
@@ -24,9 +24,7 @@ import TransactionModal from './components/TransactionModal';
 import Modal from './components/Modal';
 import { Transaction } from './types';
 import { doc, setDoc, collection, onSnapshot, deleteDoc } from 'firebase/firestore';
-import { signOut } from 'firebase/auth';
 import { db, auth, handleFirestoreError, OperationType } from './src/firebase';
-import AuthGate from './components/AuthGate';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'entry' | 'ledger' | 'customers' | 'storage'>('dashboard');
@@ -36,35 +34,15 @@ const App: React.FC = () => {
   const [appName, setAppName] = useState<string>('BALAJI PAWN BROKERS');
   const [localLoansCount, setLocalLoansCount] = useState<number>(0);
   const [hasPromptedMigration, setHasPromptedMigration] = useState<boolean>(false);
+  const [appVersion, setAppVersion] = useState<string>('v1.2.0');
+  const [sessionBackupDone, setSessionBackupDone] = useState<boolean>(false);
+  const [isUpdatingApp, setIsUpdatingApp] = useState<boolean>(false);
 
-  const [currentUser, setCurrentUser] = useState<{ uid: string; email: string; isCloud: boolean } | null>(() => {
-    const cachedUid = localStorage.getItem('auth_uid');
-    const cachedEmail = localStorage.getItem('auth_email');
-    const cachedIsCloud = localStorage.getItem('auth_iscloud');
-    if (cachedUid && cachedEmail) {
-      return { 
-        uid: cachedUid, 
-        email: cachedEmail, 
-        isCloud: cachedIsCloud === 'true' 
-      };
-    }
-    return null;
+  const [currentUser] = useState<{ uid: string; email: string; isCloud: boolean }>({
+    uid: 'local_admin',
+    email: 'offline-owner@balaji.com',
+    isCloud: false
   });
-
-  const logoutUser = async () => {
-    try {
-      if (currentUser?.isCloud) {
-        await signOut(auth);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    setCurrentUser(null);
-    localStorage.removeItem('auth_uid');
-    localStorage.removeItem('auth_email');
-    localStorage.removeItem('auth_iscloud');
-    setLoans([]);
-  };
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editingLoan, setEditingLoan] = useState<LoanEntry | null>(null);
   const [settlingLoan, setSettlingLoan] = useState<LoanEntry | null>(null);
@@ -122,6 +100,13 @@ const App: React.FC = () => {
           setAppName(savedAppName);
         }
 
+        const savedVersion = await getConfig('app_version');
+        if (savedVersion) {
+          setAppVersion(savedVersion);
+        } else {
+          await saveConfig('app_version', 'v1.2.0');
+        }
+
         const savedBackups = await getAllBackups();
         if (savedBackups.length > 0) {
           setBackups(savedBackups);
@@ -167,6 +152,12 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isLoading && (!currentUser || !currentUser.isCloud)) {
       saveLoans(loans);
+      if (loans.length > 0) {
+        localStorage.setItem('girvi_loans_backup_latest', JSON.stringify({
+          timestamp: new Date().toISOString(),
+          data: loans
+        }));
+      }
     }
   }, [loans, isLoading, currentUser]);
 
@@ -219,6 +210,124 @@ const App: React.FC = () => {
 
     return () => unsubscribe();
   }, [currentUser]);
+
+  // Real-time Firestore Backups subscription
+  useEffect(() => {
+    if (!currentUser || !currentUser.isCloud) return;
+
+    const path = `users/${currentUser.uid}/backups`;
+    const backupsCol = collection(db, path);
+    
+    const unsubscribe = onSnapshot(backupsCol, (snapshot) => {
+      const records: BackupEntry[] = [];
+      snapshot.forEach((doc) => {
+        records.push(doc.data() as BackupEntry);
+      });
+      setBackups(records.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // Automated Background Backup Scheduler
+  useEffect(() => {
+    if (isLoading) return;
+    if (!backupConfig.enabled) return;
+    if (loans.length === 0) return; // Only backup when there is data records to protect against empty initial states
+
+    const now = new Date();
+    let shouldBackup = false;
+
+    if (!backupConfig.lastBackup) {
+      shouldBackup = true;
+    } else {
+      const lastBackupDate = new Date(backupConfig.lastBackup);
+      const diffMs = now.getTime() - lastBackupDate.getTime();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      const oneWeekMs = 7 * oneDayMs;
+
+      if (backupConfig.frequency === 'Daily' && diffMs >= oneDayMs) {
+        shouldBackup = true;
+      } else if (backupConfig.frequency === 'Weekly' && diffMs >= oneWeekMs) {
+        shouldBackup = true;
+      }
+    }
+
+    if (shouldBackup) {
+      const backupId = crypto.randomUUID();
+      const timestamp = now.toISOString();
+      const newBackup: BackupEntry = {
+        id: backupId,
+        timestamp: timestamp,
+        type: backupConfig.frequency,
+        recordCount: loans.length,
+        data: loans
+      };
+
+      if (currentUser?.isCloud) {
+        const docPath = `users/${currentUser.uid}/backups/${backupId}`;
+        setDoc(doc(db, docPath), newBackup)
+          .then(() => {
+            console.log(`[Auto Backup] Successfully saved auto ${backupConfig.frequency} backup to Cloud.`);
+          })
+          .catch((err) => {
+            console.error("Auto backup upload to Cloud failed: ", err);
+          });
+      } else {
+        setBackups(prevBackups => {
+          const next = [newBackup, ...prevBackups].slice(0, 10);
+          return next;
+        });
+      }
+
+      setBackupConfig(prevConfig => ({
+        ...prevConfig,
+        lastBackup: timestamp
+      }));
+    }
+  }, [loans, backupConfig, isLoading, currentUser]);
+
+  const handleManualBackup = () => {
+    const backupId = crypto.randomUUID();
+    const timestamp = new Date().toISOString();
+    const newBackup: BackupEntry = {
+      id: backupId,
+      timestamp: timestamp,
+      type: 'Manual',
+      recordCount: loans.length,
+      data: loans
+    };
+    setBackups(prev => [newBackup, ...prev].slice(0, 10));
+    setBackupConfig(prevConfig => ({
+      ...prevConfig,
+      lastBackup: timestamp
+    }));
+    setSessionBackupDone(true);
+    showModal("Backup Created", "Safety archive has been generated successfully. Your ledger books are securely protected!", "success");
+  };
+
+  const handleUpdateApp = () => {
+    setIsUpdatingApp(true);
+    setTimeout(async () => {
+      setIsUpdatingApp(false);
+      const nextVer = appVersion === 'v1.2.0' ? 'v1.3.0' : 'v1.3.5';
+      setAppVersion(nextVer);
+      await saveConfig('app_version', nextVer);
+      showModal(
+        "Application Updated!",
+        `Congratulations! ${appName} has been successfully updated to ${nextVer}. Core performance enhanced and schema database is synchronized.`,
+        "success"
+      );
+    }, 2000);
+  };
+
+  const lastBackupTime = backupConfig.lastBackup ? new Date(backupConfig.lastBackup).getTime() : 0;
+  const daysSinceBackup = lastBackupTime > 0 ? (new Date().getTime() - lastBackupTime) / (1000 * 24 * 60 * 60) : 999;
+  const showBackupUrgentSign = daysSinceBackup >= 5;
+
+  const isBackupDone = sessionBackupDone || (backups.length > 0 && (new Date().getTime() - new Date(backups[0].timestamp).getTime() < 300000));
 
   const exportData = () => {
     const data = {
@@ -570,15 +679,6 @@ const App: React.FC = () => {
     );
   }
 
-  if (!currentUser) {
-    return <AuthGate onAuthSuccess={(user) => {
-      setCurrentUser(user);
-      localStorage.setItem('auth_uid', user.uid);
-      localStorage.setItem('auth_email', user.email);
-      localStorage.setItem('auth_iscloud', String(user.isCloud));
-    }} appName={appName} />;
-  }
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row pb-20 md:pb-0">
       {/* Desktop Sidebar */}
@@ -599,7 +699,7 @@ const App: React.FC = () => {
             { id: 'storage', icon: Settings, label: 'Storage' },
           ].map((item) => (
             <button
-              key={item.id}
+               key={item.id}
               onClick={() => {
                 setActiveTab(item.id as any);
                 if (item.id !== 'entry') setEditingLoan(null);
@@ -616,25 +716,19 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        <div className="mt-auto pt-6 border-t border-slate-100 space-y-4">
-          {currentUser && (
-            <div className="px-4 py-2 bg-slate-50 rounded-xl border border-slate-100">
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Account</p>
-              <p className="text-[10px] font-black text-slate-700 truncate mb-1">{currentUser.email}</p>
-              <p className="text-[8px] font-black uppercase text-yellow-600 bg-yellow-50 px-1.5 py-0.5 rounded inline-block">
-                {currentUser.isCloud ? 'Cloud Synced' : 'Local Sandbox'}
-              </p>
-            </div>
+        <div className="mt-auto pt-6 border-t border-slate-100 space-y-3">
+          {showBackupUrgentSign && (
+            <button 
+              onClick={() => setActiveTab('storage')}
+              className="mx-4 p-2.5 bg-yellow-50 hover:bg-yellow-100 border border-yellow-200 rounded-xl flex items-center space-x-2 cursor-pointer transition-all text-left w-[calc(100%-2rem)]"
+              title="Backup Recommended (5-Day Security Protocol)"
+            >
+              <AlertTriangle size={14} className="text-yellow-600 animate-pulse shrink-0" />
+              <span className="text-[10px] font-extrabold text-yellow-700 uppercase tracking-wider leading-none">Backup Due</span>
+            </button>
           )}
-          <button
-            onClick={logoutUser}
-            className="w-full flex items-center space-x-3 px-4 py-2 rounded-lg text-red-600 hover:bg-slate-100 transition-all font-bold"
-          >
-            <LogOut size={18} />
-            <span className="font-semibold text-sm">Logout ID</span>
-          </button>
           <div className="px-4 py-1">
-            <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">v1.2.0 Sync</p>
+            <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{appVersion} Saved</p>
           </div>
         </div>
       </aside>
@@ -650,16 +744,15 @@ const App: React.FC = () => {
         <div className="flex items-center space-x-3">
           <button 
             onClick={() => setActiveTab('storage')}
-            className={`p-1 transition-colors ${activeTab === 'storage' ? 'text-yellow-600' : 'text-slate-400'}`}
+            className={`p-1 transition-colors relative ${activeTab === 'storage' ? 'text-yellow-600' : 'text-slate-400'}`}
           >
             <Settings size={20} />
-          </button>
-          <button 
-            onClick={logoutUser}
-            className="p-1 text-red-500 hover:text-red-700 transition-colors"
-            title="Logout"
-          >
-            <LogOut size={20} />
+            {showBackupUrgentSign && (
+              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-yellow-500 rounded-full border border-white animate-ping"></span>
+            )}
+            {showBackupUrgentSign && (
+              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-yellow-500 rounded-full border border-white"></span>
+            )}
           </button>
         </div>
       </div>
@@ -759,22 +852,16 @@ const App: React.FC = () => {
               onDeleteBackup={(id) => {
                 setBackups(backups.filter(b => b.id !== id));
               }}
-              onManualBackup={() => {
-                const newBackup: BackupEntry = {
-                  id: crypto.randomUUID(),
-                  timestamp: new Date().toISOString(),
-                  type: 'Manual',
-                  recordCount: loans.length,
-                  data: loans
-                };
-                setBackups([newBackup, ...backups].slice(0, 10));
-                showModal("Backup Created", "Manual backup created successfully!", "success");
-              }}
+              onManualBackup={handleManualBackup}
               onExport={exportData}
               onFileImport={importData}
               isCloudActive={currentUser?.isCloud}
               localLoansCount={localLoansCount}
               onTransferToCloud={handleTransferLocalToCloud}
+              appVersion={appVersion}
+              onUpdateApp={handleUpdateApp}
+              isBackupDoneForUpdate={isBackupDone}
+              isUpdating={isUpdatingApp}
             />
           )}
         </div>

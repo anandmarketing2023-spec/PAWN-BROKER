@@ -129,6 +129,36 @@
         }
       },
       "required": ["id", "serialNumber", "date", "name", "contactNumber", "metalType", "amount", "interestRate", "status"]
+    },
+    "Backup": {
+      "title": "Ledger Backup",
+      "description": "Snapshot backup of all loans ledger records",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Backup unique ID"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Time when the backup was created"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["Daily", "Weekly", "Manual"],
+          "description": "Frequency type of the backup"
+        },
+        "recordCount": {
+          "type": "number",
+          "description": "Number of ledger entries backed up"
+        },
+        "data": {
+          "type": "array",
+          "description": "Serialized data array of all active/closed loans"
+        }
+      },
+      "required": ["id", "timestamp", "type", "recordCount", "data"]
     }
   },
   "firestore": {
@@ -139,6 +169,10 @@
     "/users/{userId}/loans/{loanId}": {
       "schema": "Loan",
       "description": "List of active and closed pawn loans under this authenticated account"
+    },
+    "/users/{userId}/backups/{backupId}": {
+      "schema": "Backup",
+      "description": "Historical automatic or manual database ledger backups"
     }
   }
 }

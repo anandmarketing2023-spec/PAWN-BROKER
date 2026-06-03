@@ -12,15 +12,6 @@ export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId)
 export const auth = getAuth(app);
 export const isConfigured = !hasPlaceholderKey;
 
-// In-memory access token cache for Google OAuth Workspace scopes
-let cachedAccessToken: string | null = null;
-
-export const setAccessToken = (token: string | null) => {
-  cachedAccessToken = token;
-};
-
-export const getAccessToken = () => cachedAccessToken;
-
 // Error handlers as instructed by the system skill rules
 export enum OperationType {
   CREATE = 'create',

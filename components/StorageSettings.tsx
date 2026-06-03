@@ -16,13 +16,11 @@ import {
   ArrowRight,
   Clipboard,
   FileJson,
-  Mail,
   RefreshCw
 } from 'lucide-react';
 import { LoanEntry, BackupConfig, BackupEntry } from '../types';
 import BackupManager from './BackupManager';
 import Modal from './Modal';
-import { sendGmailBackup, listGmailBackups, restoreGmailBackup, GmailBackupInfo } from '../src/gmailBackup';
 
 interface StorageSettingsProps {
   loans: LoanEntry[];
@@ -40,6 +38,10 @@ interface StorageSettingsProps {
   isCloudActive?: boolean;
   localLoansCount?: number;
   onTransferToCloud?: () => Promise<void>;
+  appVersion: string;
+  onUpdateApp: () => void;
+  isBackupDoneForUpdate: boolean;
+  isUpdating: boolean;
 }
 
 const StorageSettings: React.FC<StorageSettingsProps> = ({ 
@@ -57,105 +59,15 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
   onFileImport,
   isCloudActive,
   localLoansCount,
-  onTransferToCloud
+  onTransferToCloud,
+  appVersion,
+  onUpdateApp,
+  isBackupDoneForUpdate,
+  isUpdating
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [copySuccess, setCopySuccess] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
   const [isPasting, setIsPasting] = useState(false);
-
-  const [isBackingUpGmail, setIsBackingUpGmail] = useState(false);
-  const [isFetchingGmailBackups, setIsFetchingGmailBackups] = useState(false);
-  const [gmailBackups, setGmailBackups] = useState<GmailBackupInfo[]>([]);
-  const [showGmailList, setShowGmailList] = useState(false);
-
-  const handleGmailBackup = async () => {
-    setIsBackingUpGmail(true);
-    try {
-      await sendGmailBackup(appName, loans.length, loans);
-      showModal(
-        "Google Mail Backup Sent",
-        `A secure, formatted email backup has been successfully sent to your own inbox containing all your ${loans.length} ledger books. You can safely restore from this email at any time!`,
-        "success"
-      );
-      // Automatically refresh the list of backups
-      if (showGmailList) {
-        handleFetchGmailBackups();
-      }
-    } catch (err: any) {
-      console.error(err);
-      showModal(
-        "Backup Sending Failed",
-        `Unable to send backup to Google Mail. Please ensure you are logged with Google and have a working network connection. Error: ${err.message || err}`,
-        "warning"
-      );
-    } finally {
-      setIsBackingUpGmail(false);
-    }
-  };
-
-  const handleFetchGmailBackups = async () => {
-    setIsFetchingGmailBackups(true);
-    try {
-      const results = await listGmailBackups();
-      setGmailBackups(results);
-      setShowGmailList(true);
-      if (results.length === 0) {
-        showModal(
-          "No Backups Found",
-          "We could not find any previous Girvi Ledger Backups matching standard subject headers in your Google Mail. Try taking a backup first!",
-          "info"
-        );
-      }
-    } catch (err: any) {
-      console.error(err);
-      showModal(
-        "Failed to Fetch Backups",
-        `Unable to fetch backup emails from Gmail. Details: ${err.message || err}`,
-        "warning"
-      );
-    } finally {
-      setIsFetchingGmailBackups(false);
-    }
-  };
-
-  const handleRestoreFromGmail = async (messageId: string, item: GmailBackupInfo) => {
-    showModal(
-      "Confirm Gmail Restore",
-      `Are you sure you want to restore the backup of "${item.appName}" from ${new Date(item.timestamp).toLocaleString()}? This will override your current device view with ${item.recordCount} accounts.`,
-      "confirm",
-      async () => {
-        setIsUpdating(true);
-        try {
-          const payload = await restoreGmailBackup(messageId);
-          if (payload && Array.isArray(payload.loans)) {
-            // Restore!
-            onImport(payload.loans);
-            showModal(
-              "Ledger Restored",
-              `Successfully imported and restored ${payload.loans.length} bookkeeping records from Google Mail into your active ledger workspace!`,
-              "success"
-            );
-          } else {
-            showModal(
-              "Import Error",
-              "Decoded email payload does not contain properly structured Girvi books data.",
-              "warning"
-            );
-          }
-        } catch (err: any) {
-          console.error(err);
-          showModal(
-            "Restore Failed",
-            `Failed to decipher or load email backup. Details: ${err.message || err}`,
-            "warning"
-          );
-        } finally {
-          setIsUpdating(false);
-        }
-      }
-    );
-  };
 
   // Modal State
   const [modalConfig, setModalConfig] = useState<{
@@ -300,18 +212,15 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
   };
 
   const handleUpdateCheck = () => {
-    setIsUpdating(true);
-    setTimeout(() => {
-      setIsUpdating(false);
+    if (!isBackupDoneForUpdate) {
       showModal(
-        "App Update",
-        "App is up to date (v1.0.0). Would you like to refresh the app?",
-        "confirm",
-        () => {
-          window.location.reload();
-        }
+        "Backup Required",
+        "To prevent potential bookkeeping data loss during the system build deployment, please perform a manual database backup first.",
+        "warning"
       );
-    }, 1500);
+      return;
+    }
+    onUpdateApp();
   };
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -495,6 +404,75 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
             onManualBackup={onManualBackup} 
           />
         </div>
+
+        <div className="pt-6 border-t border-slate-100 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-slate-800 flex items-center">
+              <RefreshCw size={18} className="mr-2 text-blue-500" />
+              Software Update Centre
+            </h3>
+            <span className="text-[10px] bg-slate-100 border border-slate-200 text-slate-600 px-2.5 py-0.5 rounded-full font-bold">
+              Current: {appVersion}
+            </span>
+          </div>
+
+          <p className="text-slate-500 text-xs leading-relaxed">
+            Install the latest digital girvi software patches, security optimization, and dynamic calculation rule sets automatically.
+          </p>
+
+          {isBackupDoneForUpdate ? (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
+              <div className="flex items-center space-x-2 text-emerald-800 font-bold text-xs">
+                <CheckCircle size={14} className="text-emerald-600" />
+                <span>Safeguards Met: Backup is verified!</span>
+              </div>
+              <p className="text-[11px] text-emerald-700/80">
+                You have backed up your pawn shop database successfully. It is safe to proceed with the core ledger build upgrade now.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <div className="flex items-start space-x-2">
+                <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5 animate-pulse" />
+                <div>
+                  <h4 className="font-black text-amber-900 text-xs uppercase tracking-wider">Backup Prerequisite Required</h4>
+                  <p className="text-[11px] text-amber-800/80 mt-1 leading-relaxed">
+                    To prevent accidental loss of customer pawning information, you must run a data backup before installing the update.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
+            <div className="text-xs">
+              <span className="text-slate-400 font-semibold uppercase block text-[9px] tracking-wider">Available Patch</span>
+              <span className="font-bold text-slate-700">{appVersion === 'v1.2.0' ? 'v1.3.0 stable' : 'v1.3.5 stable'} (Performance Booster)</span>
+            </div>
+            
+            <button
+              onClick={handleUpdateCheck}
+              disabled={!isBackupDoneForUpdate || isUpdating}
+              className={`flex items-center justify-center space-x-2 px-5 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all cursor-pointer ${
+                isBackupDoneForUpdate && !isUpdating
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md active:scale-95'
+                  : 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed'
+              }`}
+            >
+              {isUpdating ? (
+                <>
+                  <RefreshCw size={14} className="animate-spin" />
+                  <span>Updating System...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw size={14} />
+                  <span>Install Software Update</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -558,113 +536,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
         </div>
       </div>
 
-      {/* Gmail Cloud Backup and Restore Panel */}
-      <div id="gmail-backup-restore-panel" className="bg-gradient-to-br from-indigo-950 to-slate-900 border border-indigo-900/50 text-white rounded-3xl p-6 md:p-8 shadow-xl relative overflow-hidden">
-        {/* Ambient details */}
-        <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
-          <Mail size={160} />
-        </div>
-        
-        <div className="relative z-10 space-y-6">
-          <div className="flex items-start md:items-center space-x-3">
-            <div className="bg-indigo-500/20 p-2.5 rounded-2xl text-indigo-300 shrink-0">
-              <Mail size={24} />
-            </div>
-            <div>
-              <h2 className="text-lg md:text-xl font-bold tracking-tight uppercase">Google Mail Archive & Restore</h2>
-              <p className="text-indigo-200/70 text-xs">Securely save and retrieve pawn shop ledger books as emails inside your personal Gmail inbox</p>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <button
-              onClick={handleGmailBackup}
-              disabled={isBackingUpGmail}
-              className="flex items-center justify-center space-x-3 bg-indigo-600 hover:bg-indigo-500 active:scale-95 disabled:opacity-50 text-white font-black uppercase text-xs tracking-wider py-4.5 rounded-2xl transition-all shadow-md cursor-pointer"
-            >
-              {isBackingUpGmail ? (
-                <>
-                  <RefreshCw size={16} className="animate-spin" />
-                  <span>Archiving books to Gmail...</span>
-                </>
-              ) : (
-                <>
-                  <Mail size={16} />
-                  <span>Send Backup to Google Mail</span>
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={handleFetchGmailBackups}
-              disabled={isFetchingGmailBackups}
-              className="flex items-center justify-center space-x-3 bg-slate-800 hover:bg-slate-700 active:scale-95 disabled:opacity-50 text-white font-black uppercase text-xs tracking-wider py-4.5 rounded-2xl border border-slate-700 transition-all shadow-md cursor-pointer"
-            >
-              {isFetchingGmailBackups ? (
-                <>
-                  <RefreshCw size={16} className="animate-spin" />
-                  <span>Fetching Gmail backups...</span>
-                </>
-              ) : (
-                <>
-                  <RefreshCw size={16} />
-                  <span>Restore from Google Mail</span>
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* List of fetched Gmail backups */}
-          {showGmailList && (
-            <div className="mt-6 border-t border-indigo-900/60 pt-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-black uppercase tracking-wider text-indigo-300">Available Email Backups</h4>
-                <button 
-                  onClick={handleFetchGmailBackups}
-                  className="text-[10px] uppercase font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5"
-                >
-                  <RefreshCw size={10} className={isFetchingGmailBackups ? "animate-spin" : ""} />
-                  Refresh List
-                </button>
-              </div>
-
-              {gmailBackups.length === 0 ? (
-                <div className="text-center py-8 bg-indigo-950/20 rounded-xl border border-dashed border-indigo-900/40 text-slate-400 text-xs italic">
-                  No Gmail ledger backups detected yet. Send one to start!
-                </div>
-              ) : (
-                <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
-                  {gmailBackups.map((item) => (
-                    <div key={item.messageId} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-slate-950/40 border border-indigo-950/80 hover:bg-slate-950/60 rounded-2xl gap-4 transition-colors">
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-black uppercase tracking-wide text-white truncate max-w-[200px]">{item.appName}</span>
-                          <span className="text-[9px] px-1.5 py-0.5 bg-indigo-500/20 text-indigo-300 font-bold rounded shrink-0">
-                            {item.recordCount} records
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-slate-400">
-                          ✉️ {new Date(item.timestamp).toLocaleString()}
-                        </p>
-                        <p className="text-[10px] text-slate-500 truncate max-w-sm italic">
-                          "{item.snippet}"
-                        </p>
-                      </div>
-
-                      <button
-                        onClick={() => handleRestoreFromGmail(item.messageId, item)}
-                        className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shrink-0 cursor-pointer text-center"
-                      >
-                        Restore Now
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Other Formats Card */}
@@ -781,7 +653,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
       <div className="text-center py-4">
         <p className="text-slate-400 text-[10px] flex items-center justify-center uppercase tracking-widest font-bold">
           <Info size={12} className="mr-1" />
-          Version 1.0.0 • {appName}
+          Version {appVersion} • {appName}
         </p>
       </div>
 
