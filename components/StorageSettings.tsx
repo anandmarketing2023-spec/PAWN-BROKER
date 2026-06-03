@@ -15,11 +15,14 @@ import {
   Plus,
   ArrowRight,
   Clipboard,
-  FileJson
+  FileJson,
+  Mail,
+  RefreshCw
 } from 'lucide-react';
 import { LoanEntry, BackupConfig, BackupEntry } from '../types';
 import BackupManager from './BackupManager';
 import Modal from './Modal';
+import { sendGmailBackup, listGmailBackups, restoreGmailBackup, GmailBackupInfo } from '../src/gmailBackup';
 
 interface StorageSettingsProps {
   loans: LoanEntry[];
@@ -34,6 +37,9 @@ interface StorageSettingsProps {
   onManualBackup: () => void;
   onExport: () => void;
   onFileImport: (file: File) => void;
+  isCloudActive?: boolean;
+  localLoansCount?: number;
+  onTransferToCloud?: () => Promise<void>;
 }
 
 const StorageSettings: React.FC<StorageSettingsProps> = ({ 
@@ -48,12 +54,108 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
   onDeleteBackup,
   onManualBackup,
   onExport,
-  onFileImport
+  onFileImport,
+  isCloudActive,
+  localLoansCount,
+  onTransferToCloud
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [copySuccess, setCopySuccess] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isPasting, setIsPasting] = useState(false);
+
+  const [isBackingUpGmail, setIsBackingUpGmail] = useState(false);
+  const [isFetchingGmailBackups, setIsFetchingGmailBackups] = useState(false);
+  const [gmailBackups, setGmailBackups] = useState<GmailBackupInfo[]>([]);
+  const [showGmailList, setShowGmailList] = useState(false);
+
+  const handleGmailBackup = async () => {
+    setIsBackingUpGmail(true);
+    try {
+      await sendGmailBackup(appName, loans.length, loans);
+      showModal(
+        "Google Mail Backup Sent",
+        `A secure, formatted email backup has been successfully sent to your own inbox containing all your ${loans.length} ledger books. You can safely restore from this email at any time!`,
+        "success"
+      );
+      // Automatically refresh the list of backups
+      if (showGmailList) {
+        handleFetchGmailBackups();
+      }
+    } catch (err: any) {
+      console.error(err);
+      showModal(
+        "Backup Sending Failed",
+        `Unable to send backup to Google Mail. Please ensure you are logged with Google and have a working network connection. Error: ${err.message || err}`,
+        "warning"
+      );
+    } finally {
+      setIsBackingUpGmail(false);
+    }
+  };
+
+  const handleFetchGmailBackups = async () => {
+    setIsFetchingGmailBackups(true);
+    try {
+      const results = await listGmailBackups();
+      setGmailBackups(results);
+      setShowGmailList(true);
+      if (results.length === 0) {
+        showModal(
+          "No Backups Found",
+          "We could not find any previous Girvi Ledger Backups matching standard subject headers in your Google Mail. Try taking a backup first!",
+          "info"
+        );
+      }
+    } catch (err: any) {
+      console.error(err);
+      showModal(
+        "Failed to Fetch Backups",
+        `Unable to fetch backup emails from Gmail. Details: ${err.message || err}`,
+        "warning"
+      );
+    } finally {
+      setIsFetchingGmailBackups(false);
+    }
+  };
+
+  const handleRestoreFromGmail = async (messageId: string, item: GmailBackupInfo) => {
+    showModal(
+      "Confirm Gmail Restore",
+      `Are you sure you want to restore the backup of "${item.appName}" from ${new Date(item.timestamp).toLocaleString()}? This will override your current device view with ${item.recordCount} accounts.`,
+      "confirm",
+      async () => {
+        setIsUpdating(true);
+        try {
+          const payload = await restoreGmailBackup(messageId);
+          if (payload && Array.isArray(payload.loans)) {
+            // Restore!
+            onImport(payload.loans);
+            showModal(
+              "Ledger Restored",
+              `Successfully imported and restored ${payload.loans.length} bookkeeping records from Google Mail into your active ledger workspace!`,
+              "success"
+            );
+          } else {
+            showModal(
+              "Import Error",
+              "Decoded email payload does not contain properly structured Girvi books data.",
+              "warning"
+            );
+          }
+        } catch (err: any) {
+          console.error(err);
+          showModal(
+            "Restore Failed",
+            `Failed to decipher or load email backup. Details: ${err.message || err}`,
+            "warning"
+          );
+        } finally {
+          setIsUpdating(false);
+        }
+      }
+    );
+  };
 
   // Modal State
   const [modalConfig, setModalConfig] = useState<{
@@ -301,19 +403,65 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
         <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Data & Storage</h1>
       </div>
 
-      {/* Info Card */}
-      <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6 flex items-start space-x-4">
-        <div className="bg-blue-100 p-2 rounded-lg text-blue-600 mt-1">
-          <ShieldCheck size={20} />
+      {/* Cloud Active Info / Offline Info Card */}
+      {isCloudActive ? (
+        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-6 flex items-start space-x-4">
+          <div className="bg-emerald-100 p-2 rounded-lg text-emerald-600 mt-1">
+            <ShieldCheck size={20} />
+          </div>
+          <div>
+            <h3 className="font-bold text-emerald-950 mb-1">Google Cloud Sync Active</h3>
+            <p className="text-emerald-800/80 text-sm leading-relaxed">
+              Your ledger records are automatically secured in real-time on your cloud database. You can open and use this ledger on multiple devices (phones, tablets, PCs) simultaneously in perfect synchrony!
+            </p>
+          </div>
         </div>
-        <div>
-          <h3 className="font-bold text-blue-900 mb-1">Privacy First Storage</h3>
-          <p className="text-blue-800/80 text-sm leading-relaxed">
-            Your data is stored <strong>locally on this device</strong>. No data is sent to any server. 
-            Ensure you take regular backups to avoid data loss.
-          </p>
+      ) : (
+        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6 flex items-start space-x-4">
+          <div className="bg-blue-100 p-2 rounded-lg text-blue-600 mt-1">
+            <ShieldCheck size={20} />
+          </div>
+          <div>
+            <h3 className="font-bold text-blue-900 mb-1">Privacy First Storage</h3>
+            <p className="text-blue-800/80 text-sm leading-relaxed">
+              Your data is stored <strong>locally on this device</strong> inside the browser ledger sandbox database. Login with Google Cloud Sync to secure your books and access them from multiple devices.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Cloud Transfer Card */}
+      {isCloudActive && localLoansCount && localLoansCount > 0 ? (
+        <div className="bg-gradient-to-r from-amber-500 to-yellow-600 border border-yellow-400 rounded-2xl p-6 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+            <Database size={80} />
+          </div>
+          <div className="space-y-1 relative z-10">
+            <span className="text-[10px] font-black tracking-widest uppercase bg-white/20 text-white px-2 py-0.5 rounded-md">
+              Offline Workspace Detected
+            </span>
+            <h3 className="text-lg font-black mt-1">Transfer Sandbox Data to Cloud Sync</h3>
+            <p className="text-amber-50 text-xs leading-relaxed max-w-xl">
+              We detected <strong>{localLoansCount} local sandbox records</strong> saved in this browser. Transfer them to your active Google Cloud database so they become instantly synced across all of your other devices!
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              showModal(
+                "Confirm Cloud Transfer",
+                `This will copy your ${localLoansCount} offline sandbox records into your secure Google Cloud database. Your existing cloud entries will not be deleted. Proceed?`,
+                "confirm",
+                () => {
+                  onTransferToCloud?.();
+                }
+              );
+            }}
+            className="w-full md:w-auto px-5 py-3 bg-white text-amber-700 hover:bg-amber-50 active:scale-95 text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-md shrink-0 cursor-pointer"
+          >
+            Transfer to Cloud
+          </button>
+        </div>
+      ) : null}
 
       {/* Auto Backup Section */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-6">
@@ -407,6 +555,114 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
               Select the .json file you downloaded
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* Gmail Cloud Backup and Restore Panel */}
+      <div id="gmail-backup-restore-panel" className="bg-gradient-to-br from-indigo-950 to-slate-900 border border-indigo-900/50 text-white rounded-3xl p-6 md:p-8 shadow-xl relative overflow-hidden">
+        {/* Ambient details */}
+        <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+          <Mail size={160} />
+        </div>
+        
+        <div className="relative z-10 space-y-6">
+          <div className="flex items-start md:items-center space-x-3">
+            <div className="bg-indigo-500/20 p-2.5 rounded-2xl text-indigo-300 shrink-0">
+              <Mail size={24} />
+            </div>
+            <div>
+              <h2 className="text-lg md:text-xl font-bold tracking-tight uppercase">Google Mail Archive & Restore</h2>
+              <p className="text-indigo-200/70 text-xs">Securely save and retrieve pawn shop ledger books as emails inside your personal Gmail inbox</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button
+              onClick={handleGmailBackup}
+              disabled={isBackingUpGmail}
+              className="flex items-center justify-center space-x-3 bg-indigo-600 hover:bg-indigo-500 active:scale-95 disabled:opacity-50 text-white font-black uppercase text-xs tracking-wider py-4.5 rounded-2xl transition-all shadow-md cursor-pointer"
+            >
+              {isBackingUpGmail ? (
+                <>
+                  <RefreshCw size={16} className="animate-spin" />
+                  <span>Archiving books to Gmail...</span>
+                </>
+              ) : (
+                <>
+                  <Mail size={16} />
+                  <span>Send Backup to Google Mail</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={handleFetchGmailBackups}
+              disabled={isFetchingGmailBackups}
+              className="flex items-center justify-center space-x-3 bg-slate-800 hover:bg-slate-700 active:scale-95 disabled:opacity-50 text-white font-black uppercase text-xs tracking-wider py-4.5 rounded-2xl border border-slate-700 transition-all shadow-md cursor-pointer"
+            >
+              {isFetchingGmailBackups ? (
+                <>
+                  <RefreshCw size={16} className="animate-spin" />
+                  <span>Fetching Gmail backups...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw size={16} />
+                  <span>Restore from Google Mail</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* List of fetched Gmail backups */}
+          {showGmailList && (
+            <div className="mt-6 border-t border-indigo-900/60 pt-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-black uppercase tracking-wider text-indigo-300">Available Email Backups</h4>
+                <button 
+                  onClick={handleFetchGmailBackups}
+                  className="text-[10px] uppercase font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5"
+                >
+                  <RefreshCw size={10} className={isFetchingGmailBackups ? "animate-spin" : ""} />
+                  Refresh List
+                </button>
+              </div>
+
+              {gmailBackups.length === 0 ? (
+                <div className="text-center py-8 bg-indigo-950/20 rounded-xl border border-dashed border-indigo-900/40 text-slate-400 text-xs italic">
+                  No Gmail ledger backups detected yet. Send one to start!
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
+                  {gmailBackups.map((item) => (
+                    <div key={item.messageId} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-slate-950/40 border border-indigo-950/80 hover:bg-slate-950/60 rounded-2xl gap-4 transition-colors">
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-black uppercase tracking-wide text-white truncate max-w-[200px]">{item.appName}</span>
+                          <span className="text-[9px] px-1.5 py-0.5 bg-indigo-500/20 text-indigo-300 font-bold rounded shrink-0">
+                            {item.recordCount} records
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          ✉️ {new Date(item.timestamp).toLocaleString()}
+                        </p>
+                        <p className="text-[10px] text-slate-500 truncate max-w-sm italic">
+                          "{item.snippet}"
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => handleRestoreFromGmail(item.messageId, item)}
+                        className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shrink-0 cursor-pointer text-center"
+                      >
+                        Restore Now
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

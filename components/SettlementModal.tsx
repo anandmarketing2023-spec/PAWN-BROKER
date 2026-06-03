@@ -151,8 +151,8 @@ const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConf
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-        <div className="bg-yellow-500 p-6 text-white flex justify-between items-center">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh] sm:max-h-[90vh]">
+        <div className="bg-yellow-500 p-6 text-white flex justify-between items-center shrink-0">
           <div>
             <h2 className="text-xl font-bold">Settle Loan</h2>
             <p className="text-yellow-100 text-xs mt-1">#{String(loan.serialNumber).padStart(4, '0')} • {loan.name}</p>
@@ -162,7 +162,7 @@ const SettlementModal: React.FC<SettlementModalProps> = ({ loan, onClose, onConf
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-6 flex-1 overflow-y-auto">
           {/* Date Picker */}
           <div>
             <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">

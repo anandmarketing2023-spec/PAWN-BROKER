@@ -9,7 +9,8 @@ import {
   Menu,
   X,
   Users,
-  Coins
+  Coins,
+  LogOut
 } from 'lucide-react';
 import { LoanEntry, BackupConfig, BackupEntry } from './types';
 import { getAllLoans, saveLoans, getConfig, saveConfig, getAllBackups, saveBackupsToDB } from './src/db';
@@ -22,6 +23,10 @@ import SettlementModal from './components/SettlementModal';
 import TransactionModal from './components/TransactionModal';
 import Modal from './components/Modal';
 import { Transaction } from './types';
+import { doc, setDoc, collection, onSnapshot, deleteDoc } from 'firebase/firestore';
+import { signOut } from 'firebase/auth';
+import { db, auth, handleFirestoreError, OperationType } from './src/firebase';
+import AuthGate from './components/AuthGate';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'entry' | 'ledger' | 'customers' | 'storage'>('dashboard');
@@ -29,6 +34,37 @@ const App: React.FC = () => {
   const [backupConfig, setBackupConfig] = useState<BackupConfig>({ frequency: 'Daily', enabled: true });
   const [backups, setBackups] = useState<BackupEntry[]>([]);
   const [appName, setAppName] = useState<string>('BALAJI PAWN BROKERS');
+  const [localLoansCount, setLocalLoansCount] = useState<number>(0);
+  const [hasPromptedMigration, setHasPromptedMigration] = useState<boolean>(false);
+
+  const [currentUser, setCurrentUser] = useState<{ uid: string; email: string; isCloud: boolean } | null>(() => {
+    const cachedUid = localStorage.getItem('auth_uid');
+    const cachedEmail = localStorage.getItem('auth_email');
+    const cachedIsCloud = localStorage.getItem('auth_iscloud');
+    if (cachedUid && cachedEmail) {
+      return { 
+        uid: cachedUid, 
+        email: cachedEmail, 
+        isCloud: cachedIsCloud === 'true' 
+      };
+    }
+    return null;
+  });
+
+  const logoutUser = async () => {
+    try {
+      if (currentUser?.isCloud) {
+        await signOut(auth);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setCurrentUser(null);
+    localStorage.removeItem('auth_uid');
+    localStorage.removeItem('auth_email');
+    localStorage.removeItem('auth_iscloud');
+    setLoans([]);
+  };
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editingLoan, setEditingLoan] = useState<LoanEntry | null>(null);
   const [settlingLoan, setSettlingLoan] = useState<LoanEntry | null>(null);
@@ -129,14 +165,60 @@ const App: React.FC = () => {
   }, [backups, isLoading]);
 
   useEffect(() => {
-    if (!isLoading) {
+    if (!isLoading && (!currentUser || !currentUser.isCloud)) {
       saveLoans(loans);
     }
-  }, [loans, isLoading]);
+  }, [loans, isLoading, currentUser]);
 
   useEffect(() => {
     document.title = `${appName} - Digital Ledger`;
   }, [appName]);
+
+  useEffect(() => {
+    const checkLocalLoansAndPrompt = async () => {
+      try {
+        const localItems = await getAllLoans();
+        const count = localItems ? localItems.length : 0;
+        setLocalLoansCount(count);
+
+        if (currentUser?.isCloud && count > 0 && !hasPromptedMigration) {
+          setHasPromptedMigration(true);
+          showModal(
+            "Transfer Sandbox Data to Cloud",
+            `We detected ${count} local offline sandbox accounts inside this browser. Would you like to securely transfer them to your Google Cloud Database so that they are instantly backed up and available across all your synchronized devices?`,
+            "confirm",
+            () => {
+              handleTransferLocalToCloud();
+            }
+          );
+        }
+      } catch (e) {
+        console.error("Error checking local loans and prompting: ", e);
+      }
+    };
+    checkLocalLoansAndPrompt();
+  }, [currentUser, hasPromptedMigration]);
+
+  // Real-time Firestore Sync subscription
+  useEffect(() => {
+    if (!currentUser || !currentUser.isCloud) return;
+
+    const path = `users/${currentUser.uid}/loans`;
+    const loansCol = collection(db, path);
+    
+    const unsubscribe = onSnapshot(loansCol, (snapshot) => {
+      const records: LoanEntry[] = [];
+      snapshot.forEach((doc) => {
+        records.push(doc.data() as LoanEntry);
+      });
+      // Sort with serialNumber or date
+      setLoans(records.sort((a, b) => b.serialNumber - a.serialNumber));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
 
   const exportData = () => {
     const data = {
@@ -160,6 +242,40 @@ const App: React.FC = () => {
     showModal("Export Successful", "Your data has been exported to a file. Keep it safe!", "success");
   };
 
+  const handleTransferLocalToCloud = async () => {
+    if (!currentUser || !currentUser.isCloud) return;
+    setIsLoading(true);
+    try {
+      const localLoans = await getAllLoans();
+      if (!localLoans || localLoans.length === 0) {
+        showModal("No Data Found", "No local ledger records were found to migrate.", "info");
+        setIsLoading(false);
+        return;
+      }
+
+      let count = 0;
+      for (const loan of localLoans) {
+        const docPath = `users/${currentUser.uid}/loans/${loan.id}`;
+        await setDoc(doc(db, docPath), loan);
+        count++;
+      }
+
+      // Successfully synced to cloud! Clean up the local offline sandbox entries so we do not prompt again.
+      await saveLoans([]);
+      setLocalLoansCount(0);
+      showModal(
+        "Sync Success",
+        `Transfer completed! Successfully uploaded ${count} local sandbox records to your secure Google Cloud database. They are now safe and accessible across all your devices in real-time!`,
+        "success"
+      );
+    } catch (err: any) {
+      console.error(err);
+      showModal("Transfer Failed", `Unable to sync records to the Cloud. Details: ${err.message || err}`, "warning");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const importData = (file: File) => {
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -170,20 +286,39 @@ const App: React.FC = () => {
         if (data.loans && Array.isArray(data.loans)) {
           showModal(
             "Confirm Import",
-            `This will replace your current ${loans.length} records with ${data.loans.length} records from the backup file. Continue?`,
+            `This will replace your current ${loans.length} records with ${data.loans.length} records. Continue?`,
             "warning",
             async () => {
-              setLoans(data.loans);
-              if (data.backupConfig) setBackupConfig(data.backupConfig);
-              if (data.backups) setBackups(data.backups);
-              if (data.appName) setAppName(data.appName);
-              
-              await saveLoans(data.loans);
-              if (data.backupConfig) await saveConfig('backup_config', data.backupConfig);
-              if (data.backups) await saveBackupsToDB(data.backups);
-              if (data.appName) await saveConfig('app_name', data.appName);
-              
-              showModal("Import Successful", "Your data has been restored from the backup file.", "success");
+              if (currentUser?.isCloud) {
+                setIsLoading(true);
+                try {
+                  // Delete existing
+                  for (const l of loans) {
+                    await deleteDoc(doc(db, `users/${currentUser.uid}/loans/${l.id}`));
+                  }
+                  // Write new
+                  for (const loan of data.loans) {
+                    await setDoc(doc(db, `users/${currentUser.uid}/loans/${loan.id}`), loan);
+                  }
+                  showModal("Import Successful", "Your cloud database has been successfully updated with records from the backup file.", "success");
+                } catch (err: any) {
+                  showModal("Failed to import", `Failed to restore to Google Cloud: ${err.message || err}`, "warning");
+                } finally {
+                  setIsLoading(false);
+                }
+              } else {
+                setLoans(data.loans);
+                if (data.backupConfig) setBackupConfig(data.backupConfig);
+                if (data.backups) setBackups(data.backups);
+                if (data.appName) setAppName(data.appName);
+                
+                await saveLoans(data.loans);
+                if (data.backupConfig) await saveConfig('backup_config', data.backupConfig);
+                if (data.backups) await saveBackupsToDB(data.backups);
+                if (data.appName) await saveConfig('app_name', data.appName);
+                
+                showModal("Import Successful", "Your data has been restored from the backup file.", "success");
+              }
             }
           );
         } else {
@@ -196,24 +331,42 @@ const App: React.FC = () => {
     reader.readAsText(file);
   };
 
-  const saveLoan = (loanData: Omit<LoanEntry, 'id' | 'isDeleted'>) => {
-    if (editingLoan) {
+  const saveLoan = async (loanData: Omit<LoanEntry, 'id' | 'isDeleted'>) => {
+    let loanId = editingLoan?.id;
+    let finalLoan: LoanEntry;
+
+    if (editingLoan && loanId) {
       let closeDate = editingLoan.closeDate;
       if (loanData.status === 'Closed' && !closeDate) {
         closeDate = new Date().toISOString().split('T')[0];
       } else if (loanData.status === 'Active') {
         closeDate = undefined;
       }
-      setLoans(loans.map(l => l.id === editingLoan.id ? { ...loanData, id: editingLoan.id, closeDate } : l));
-      setEditingLoan(null);
+      finalLoan = { ...loanData, id: loanId, closeDate };
     } else {
-      const loan: LoanEntry = {
+      loanId = crypto.randomUUID();
+      finalLoan = {
         ...loanData,
-        id: crypto.randomUUID(),
+        id: loanId,
         closeDate: loanData.status === 'Closed' ? new Date().toISOString().split('T')[0] : undefined
       };
-      setLoans([...loans, loan]);
     }
+
+    if (currentUser?.isCloud) {
+      const docPath = `users/${currentUser.uid}/loans/${loanId}`;
+      try {
+        await setDoc(doc(db, docPath), finalLoan);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, docPath);
+      }
+    } else {
+      const nextLoans = editingLoan 
+        ? loans.map(l => l.id === loanId ? finalLoan : l)
+        : [...loans, finalLoan];
+      setLoans(nextLoans);
+      await saveLoans(nextLoans);
+    }
+    setEditingLoan(null);
     setActiveTab('ledger');
   };
 
@@ -222,8 +375,23 @@ const App: React.FC = () => {
       "Confirm Deletion",
       "Are you sure you want to delete this record? It will be moved to the trash and can be recovered later.",
       "warning",
-      () => {
-        setLoans(loans.map(l => l.id === id ? { ...l, isDeleted: true } : l));
+      async () => {
+        const targetLoan = loans.find(l => l.id === id);
+        if (!targetLoan) return;
+
+        const updatedLoan = { ...targetLoan, isDeleted: true };
+        if (currentUser?.isCloud) {
+          const docPath = `users/${currentUser.uid}/loans/${id}`;
+          try {
+            await setDoc(doc(db, docPath), updatedLoan);
+          } catch (err) {
+            handleFirestoreError(err, OperationType.WRITE, docPath);
+          }
+        } else {
+          const nextLoans = loans.map(l => l.id === id ? updatedLoan : l);
+          setLoans(nextLoans);
+          await saveLoans(nextLoans);
+        }
       }
     );
   };
@@ -237,14 +405,45 @@ const App: React.FC = () => {
         "Re-open Account",
         "Do you want to re-open this account as UNPAID?",
         "confirm",
-        () => {
-          setLoans(loans.map(l => l.id === id ? { ...l, status: 'Active', closeDate: undefined, settledInterest: undefined } : l));
+        async () => {
+          const updated = { ...loan, status: 'Active' as const, closeDate: undefined, settledInterest: undefined };
+          if (currentUser?.isCloud) {
+            const docPath = `users/${currentUser.uid}/loans/${id}`;
+            try {
+              await setDoc(doc(db, docPath), updated);
+            } catch (err) {
+              handleFirestoreError(err, OperationType.WRITE, docPath);
+            }
+          } else {
+            const nextLoans = loans.map(l => l.id === id ? updated : l);
+            setLoans(nextLoans);
+            await saveLoans(nextLoans);
+          }
         }
       );
     } else {
       if (customDate) {
-        setLoans(loans.map(l => l.id === id ? { ...l, status: 'Closed', closeDate: customDate, settledInterest } : l));
-        setSettlingLoan(null);
+        showModal(
+          "Confirm Settlement",
+          "Proceed with settling this loan with received payments?",
+          "confirm",
+          async () => {
+            const updated = { ...loan, status: 'Closed' as const, closeDate: customDate, settledInterest };
+            if (currentUser?.isCloud) {
+              const docPath = `users/${currentUser.uid}/loans/${id}`;
+              try {
+                await setDoc(doc(db, docPath), updated);
+              } catch (err) {
+                handleFirestoreError(err, OperationType.WRITE, docPath);
+              }
+            } else {
+              const nextLoans = loans.map(l => l.id === id ? updated : l);
+              setLoans(nextLoans);
+              await saveLoans(nextLoans);
+            }
+            setSettlingLoan(null);
+          }
+        );
       } else {
         setSettlingLoan(loan);
       }
@@ -260,49 +459,68 @@ const App: React.FC = () => {
     setSettlingLoan(loan);
   };
   
-  const handleSaveTransaction = (id: string, transaction: Transaction) => {
-    setLoans(loans.map(l => {
-      if (l.id === id) {
-        const transactions = [...(l.transactions || []), transaction];
-        return { ...l, transactions };
+  const handleSaveTransaction = async (id: string, transaction: Transaction) => {
+    const loan = loans.find(l => l.id === id);
+    if (!loan) return;
+
+    const transactions = [...(loan.transactions || []), transaction];
+    const updated = { ...loan, transactions };
+
+    if (currentUser?.isCloud) {
+      const docPath = `users/${currentUser.uid}/loans/${id}`;
+      try {
+        await setDoc(doc(db, docPath), updated);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, docPath);
       }
-      return l;
-    }));
+    } else {
+      const nextLoans = loans.map(l => l.id === id ? updated : l);
+      setLoans(nextLoans);
+      await saveLoans(nextLoans);
+    }
     showModal("Success", "Transaction saved successfully!", "success");
   };
 
-  const handleRenew = (oldLoanId: string, settlementDate: string, settledInterest: number, newDetails: { amount: number, date: string, interestRate: number }) => {
-    setLoans(prevLoans => {
-      const updatedLoans = prevLoans.map(l => {
-        if (l.id === oldLoanId) {
-          return { ...l, status: 'Closed' as const, closeDate: settlementDate, settledInterest };
-        }
-        return l;
-      });
+  const handleRenew = async (oldLoanId: string, settlementDate: string, settledInterest: number, newDetails: { amount: number, date: string, interestRate: number }) => {
+    const oldLoan = loans.find(l => l.id === oldLoanId);
+    if (!oldLoan) return;
 
-      const oldLoan = prevLoans.find(l => l.id === oldLoanId);
-      if (!oldLoan) return updatedLoans;
+    const updatedOldLoan = { ...oldLoan, status: 'Closed' as const, closeDate: settlementDate, settledInterest };
+    
+    const nextSerial = loans.filter(l => !l.isDeleted).length > 0 
+      ? Math.max(...loans.filter(l => !l.isDeleted).map(l => l.serialNumber)) + 1 
+      : 1;
 
-      const nextSerial = updatedLoans.filter(l => !l.isDeleted).length > 0 
-        ? Math.max(...updatedLoans.filter(l => !l.isDeleted).map(l => l.serialNumber)) + 1 
-        : 1;
+    const newLoanId = crypto.randomUUID();
+    const newLoan: LoanEntry = {
+      ...oldLoan,
+      id: newLoanId,
+      serialNumber: nextSerial,
+      date: newDetails.date,
+      amount: newDetails.amount,
+      interestRate: newDetails.interestRate,
+      status: 'Active',
+      closeDate: undefined,
+      settledInterest: undefined,
+      transactions: [], // Reset transactions for new loan
+      remark: `${oldLoan.remark ? oldLoan.remark + ' | ' : ''}Renewed from #${oldLoan.serialNumber}`
+    };
 
-      const newLoan: LoanEntry = {
-        ...oldLoan,
-        id: crypto.randomUUID(),
-        serialNumber: nextSerial,
-        date: newDetails.date,
-        amount: newDetails.amount,
-        interestRate: newDetails.interestRate,
-        status: 'Active',
-        closeDate: undefined,
-        settledInterest: undefined,
-        transactions: [], // Reset transactions for new loan
-        remark: `${oldLoan.remark ? oldLoan.remark + ' | ' : ''}Renewed from #${oldLoan.serialNumber}`
-      };
-
-      return [newLoan, ...updatedLoans];
-    });
+    if (currentUser?.isCloud) {
+      const batchWrites = [
+        setDoc(doc(db, `users/${currentUser.uid}/loans/${oldLoanId}`), updatedOldLoan),
+        setDoc(doc(db, `users/${currentUser.uid}/loans/${newLoanId}`), newLoan)
+      ];
+      try {
+        await Promise.all(batchWrites);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}/loans`);
+      }
+    } else {
+      const nextLoans = [newLoan, ...loans.map(l => l.id === oldLoanId ? updatedOldLoan : l)];
+      setLoans(nextLoans);
+      await saveLoans(nextLoans);
+    }
 
     setSettlingLoan(null);
     showModal("Success", "Account renewed successfully! New entry created.", "success");
@@ -352,6 +570,15 @@ const App: React.FC = () => {
     );
   }
 
+  if (!currentUser) {
+    return <AuthGate onAuthSuccess={(user) => {
+      setCurrentUser(user);
+      localStorage.setItem('auth_uid', user.uid);
+      localStorage.setItem('auth_email', user.email);
+      localStorage.setItem('auth_iscloud', String(user.isCloud));
+    }} appName={appName} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row pb-20 md:pb-0">
       {/* Desktop Sidebar */}
@@ -389,9 +616,25 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        <div className="mt-auto pt-6 border-t border-slate-100">
-          <div className="px-4 py-2">
-            <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">v1.0.0 Stable</p>
+        <div className="mt-auto pt-6 border-t border-slate-100 space-y-4">
+          {currentUser && (
+            <div className="px-4 py-2 bg-slate-50 rounded-xl border border-slate-100">
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Account</p>
+              <p className="text-[10px] font-black text-slate-700 truncate mb-1">{currentUser.email}</p>
+              <p className="text-[8px] font-black uppercase text-yellow-600 bg-yellow-50 px-1.5 py-0.5 rounded inline-block">
+                {currentUser.isCloud ? 'Cloud Synced' : 'Local Sandbox'}
+              </p>
+            </div>
+          )}
+          <button
+            onClick={logoutUser}
+            className="w-full flex items-center space-x-3 px-4 py-2 rounded-lg text-red-600 hover:bg-slate-100 transition-all font-bold"
+          >
+            <LogOut size={18} />
+            <span className="font-semibold text-sm">Logout ID</span>
+          </button>
+          <div className="px-4 py-1">
+            <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">v1.2.0 Sync</p>
           </div>
         </div>
       </aside>
@@ -404,12 +647,19 @@ const App: React.FC = () => {
           </div>
           <span className="text-base font-bold text-slate-800">{appName}</span>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-3">
           <button 
             onClick={() => setActiveTab('storage')}
             className={`p-1 transition-colors ${activeTab === 'storage' ? 'text-yellow-600' : 'text-slate-400'}`}
           >
             <Settings size={20} />
+          </button>
+          <button 
+            onClick={logoutUser}
+            className="p-1 text-red-500 hover:text-red-700 transition-colors"
+            title="Logout"
+          >
+            <LogOut size={20} />
           </button>
         </div>
       </div>
@@ -445,7 +695,33 @@ const App: React.FC = () => {
           {activeTab === 'storage' && (
             <StorageSettings 
               loans={loans} 
-              onImport={setLoans}
+              onImport={async (updatedLoansList) => {
+                if (currentUser?.isCloud) {
+                  try {
+                    setIsLoading(true);
+                    // Handle hard deletions
+                    const deletedIds = loans.filter(l => !updatedLoansList.some(ul => ul.id === l.id)).map(l => l.id);
+                    for (const id of deletedIds) {
+                      await deleteDoc(doc(db, `users/${currentUser.uid}/loans/${id}`));
+                    }
+                    // Handle modifications (e.g. restoring deleted, or additions)
+                    const modifiedLoans = updatedLoansList.filter(ul => {
+                      const prev = loans.find(l => l.id === ul.id);
+                      return prev ? JSON.stringify(prev) !== JSON.stringify(ul) : true;
+                    });
+                    for (const loan of modifiedLoans) {
+                      await setDoc(doc(db, `users/${currentUser.uid}/loans/${loan.id}`), loan);
+                    }
+                  } catch (err) {
+                    console.error("Failed to perform storage trash operation in Cloud mode: ", err);
+                  } finally {
+                    setIsLoading(false);
+                  }
+                } else {
+                  setLoans(updatedLoansList);
+                  await saveLoans(updatedLoansList);
+                }
+              }}
               backupConfig={backupConfig}
               onBackupConfigChange={setBackupConfig}
               backups={backups}
@@ -456,9 +732,27 @@ const App: React.FC = () => {
                   "Restore Backup",
                   "Are you sure you want to restore this backup? Your current data will be replaced.",
                   "warning",
-                  () => {
-                    setLoans(data);
-                    showModal("Success", "Backup restored successfully!", "success");
+                  async () => {
+                    if (currentUser?.isCloud) {
+                      setIsLoading(true);
+                      try {
+                        for (const l of loans) {
+                          await deleteDoc(doc(db, `users/${currentUser.uid}/loans/${l.id}`));
+                        }
+                        for (const loan of data) {
+                          await setDoc(doc(db, `users/${currentUser.uid}/loans/${loan.id}`), loan);
+                        }
+                        showModal("Success", "Backup restored to Google Cloud successfully!", "success");
+                      } catch (err: any) {
+                        showModal("Restore Failed", `Failed to restore to Google Cloud: ${err.message || err}`, "warning");
+                      } finally {
+                        setIsLoading(false);
+                      }
+                    } else {
+                      setLoans(data);
+                      await saveLoans(data);
+                      showModal("Success", "Backup restored successfully!", "success");
+                    }
                   }
                 );
               }}
@@ -478,6 +772,9 @@ const App: React.FC = () => {
               }}
               onExport={exportData}
               onFileImport={importData}
+              isCloudActive={currentUser?.isCloud}
+              localLoansCount={localLoansCount}
+              onTransferToCloud={handleTransferLocalToCloud}
             />
           )}
         </div>

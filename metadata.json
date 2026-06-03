@@ -1,5 +1,6 @@
 {
   "name": "BALAJI PAWN BROKERS",
   "description": "A professional digital ledger for pawn brokers and jewelers. Manage gold/silver loans (Girvi) with automated interest calculation, secure local storage, PWA support for offline use, and easy file-based backup and restore.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

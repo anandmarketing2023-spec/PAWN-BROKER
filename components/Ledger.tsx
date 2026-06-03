@@ -18,20 +18,47 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
-  const filteredLoans = useMemo(() => {
-    return loans.filter(loan => 
-      loan.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      loan.contactNumber.includes(searchTerm) ||
-      loan.serialNumber.toString().includes(searchTerm) ||
-      loan.description.toLowerCase().includes(searchTerm.toLowerCase())
-    ).sort((a, b) => b.serialNumber - a.serialNumber);
-  }, [loans, searchTerm]);
+  // Pre-calculate all heavy financial values once when the loans prop changes.
+  // This avoids executing heavy loop-based calculation functions inside rendering cycles and filters.
+  const calculatedLoans = useMemo(() => {
+    const list = loans.map(loan => {
+      const principal = getCurrentPrincipal(loan);
+      const interest = loan.status === 'Closed' && loan.settledInterest !== undefined 
+        ? loan.settledInterest 
+        : calculateInterest(loan);
+      const total = principal + interest;
+      const oldPending = isOldPending(loan);
+      const searchString = `${loan.serialNumber} ${loan.name.toLowerCase()} ${loan.contactNumber} ${loan.description.toLowerCase()}`;
+      
+      const interestPaid = loan.transactions
+        ?.filter(t => t.type === 'Interest Payment')
+        ?.reduce((sum, t) => sum + t.amount, 0) || 0;
+
+      return {
+        loan,
+        principal,
+        interest,
+        total,
+        oldPending,
+        searchString,
+        interestPaid,
+      };
+    });
+    return list.sort((a, b) => b.loan.serialNumber - a.loan.serialNumber);
+  }, [loans]);
+
+  // Fast, linear search query on cached pre-compiled flat lowercase strings
+  const filteredCalculatedLoans = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return calculatedLoans;
+    return calculatedLoans.filter(cl => cl.searchString.includes(term));
+  }, [calculatedLoans, searchTerm]);
 
   const handleExportCSV = () => {
-    if (filteredLoans.length === 0) return;
+    if (filteredCalculatedLoans.length === 0) return;
     
     const headers = ['S.No', 'Date', 'Name', 'Guardian', 'Contact', 'Address', 'Metal', 'Description', 'Weight', 'Net Weight', 'Amount', 'Interest Rate', 'Status', 'Close Date', 'Settled Interest'];
-    const rows = filteredLoans.map(l => [
+    const rows = filteredCalculatedLoans.map(({ loan: l }) => [
       l.serialNumber,
       l.date,
       l.name,
@@ -71,7 +98,7 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
       <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-slate-800">Loan Ledger</h1>
-          <p className="text-sm text-slate-500">Manage {filteredLoans.length} total records</p>
+          <p className="text-sm text-slate-500">Manage {filteredCalculatedLoans.length} total records</p>
         </div>
         <div className="flex items-center space-x-2">
           <button 
@@ -104,7 +131,7 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
 
       {/* MOBILE CARD VIEW (Hidden on md+) */}
       <div className="grid grid-cols-1 gap-4 md:hidden">
-        {filteredLoans.map((loan) => (
+        {filteredCalculatedLoans.map(({ loan, principal, interest, total, oldPending, interestPaid }) => (
           <div key={loan.id} className={`bg-white rounded-2xl border ${loan.status === 'Closed' ? 'border-red-100 bg-red-50/10' : 'border-slate-100'} p-4 shadow-sm active:scale-[0.98] transition-transform`}>
             <div className="flex justify-between items-start mb-3">
               <div className="flex items-center space-x-2">
@@ -128,8 +155,8 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
             <div className="mb-4 flex gap-4">
               <div className="flex-1">
                 <div className="flex flex-col">
-                  <h3 className={`text-base font-bold ${loan.status === 'Closed' ? 'text-slate-400 line-through' : (isOldPending(loan) ? 'text-red-600' : 'text-slate-900')}`}>{loan.name}</h3>
-                  {isOldPending(loan) && (
+                  <h3 className={`text-base font-bold ${loan.status === 'Closed' ? 'text-slate-400 line-through' : (oldPending ? 'text-red-600' : 'text-slate-900')}`}>{loan.name}</h3>
+                  {oldPending && (
                     <div className="flex items-center gap-1 mt-0.5">
                       <AlertCircle size={10} className="text-red-500" />
                       <span className="text-[9px] font-black text-red-500 uppercase tracking-tighter bg-red-50 px-1.5 py-0.5 rounded border border-red-100">Old Pending Girvi</span>
@@ -137,7 +164,7 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
                   )}
                 </div>
                 <div className="flex items-center text-xs text-slate-500 mt-1 space-x-3">
-                  <span className={`flex items-center gap-1 ${isOldPending(loan) ? 'text-red-500 font-bold' : ''}`}><Phone size={12} /> {loan.contactNumber}</span>
+                  <span className={`flex items-center gap-1 ${oldPending ? 'text-red-500 font-bold' : ''}`}><Phone size={12} /> {loan.contactNumber}</span>
                   <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(loan.date).toLocaleDateString()}</span>
                 </div>
               </div>
@@ -156,16 +183,16 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
                 <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Financials</p>
                 <div className="flex items-center gap-2 mt-1">
                   <div className="flex flex-col">
-                    <span className="text-sm font-black text-slate-800">P: ₹{getCurrentPrincipal(loan).toLocaleString()}</span>
-                    <span className="text-[8px] text-slate-400 font-bold">Total: ₹{(getCurrentPrincipal(loan) + (loan.status === 'Closed' && loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan))).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                    <span className="text-sm font-black text-slate-800">P: ₹{principal.toLocaleString()}</span>
+                    <span className="text-[8px] text-slate-400 font-bold">Total: ₹{total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                   </div>
                   <div className="flex flex-col items-end">
                     <span className="text-xs font-bold text-green-600">
-                      +₹{(loan.status === 'Closed' && loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      +₹{interest.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </span>
-                    {loan.transactions?.some(t => t.type === 'Interest Payment') && (
+                    {interestPaid > 0 && (
                       <span className="text-[7px] font-black text-blue-500 uppercase">
-                        Paid: ₹{loan.transactions.filter(t => t.type === 'Interest Payment').reduce((sum, t) => sum + t.amount, 0).toLocaleString()}
+                        Paid: ₹{interestPaid.toLocaleString()}
                       </span>
                     )}
                   </div>
@@ -228,7 +255,7 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filteredLoans.map((loan) => (
+            {filteredCalculatedLoans.map(({ loan, principal, interest, total, oldPending, interestPaid }) => (
               <tr key={loan.id} className={`hover:bg-slate-50/50 transition-colors group ${loan.status === 'Closed' ? 'bg-red-50/10' : ''}`}>
                 <td className="px-6 py-4">
                 <div className="flex flex-col">
@@ -260,15 +287,15 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
                     )}
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2">
-                        <span className={`font-bold ${loan.status === 'Closed' ? 'text-slate-400 line-through' : (isOldPending(loan) ? 'text-red-600' : 'text-slate-800')}`}>{loan.name}</span>
-                        {isOldPending(loan) && (
+                        <span className={`font-bold ${loan.status === 'Closed' ? 'text-slate-400 line-through' : (oldPending ? 'text-red-600' : 'text-slate-800')}`}>{loan.name}</span>
+                        {oldPending && (
                           <span className="text-[8px] font-black text-red-500 uppercase tracking-widest bg-red-50 px-1.5 py-0.5 rounded border border-red-100 flex items-center gap-0.5">
                             <AlertCircle size={8} />
                             Old Pending
                           </span>
                         )}
                       </div>
-                      <div className={`flex items-center space-x-1 mt-1 text-xs ${isOldPending(loan) ? 'text-red-500 font-bold' : 'text-slate-500'}`}><Phone size={10} /> {loan.contactNumber}</div>
+                      <div className={`flex items-center space-x-1 mt-1 text-xs ${oldPending ? 'text-red-500 font-bold' : 'text-slate-500'}`}><Phone size={10} /> {loan.contactNumber}</div>
                       <div className="flex items-center space-x-1 mt-0.5 text-[10px] text-slate-400 font-bold uppercase"><Calendar size={10} /> {new Date(loan.date).toLocaleDateString()}</div>
                     </div>
                   </div>
@@ -296,8 +323,8 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
                 </td>
                 <td className="px-6 py-4 text-right">
                   <div className="flex flex-col items-end">
-                    <span className={`font-bold ${loan.status === 'Closed' ? 'text-slate-400' : 'text-slate-800'}`}>₹{getCurrentPrincipal(loan).toLocaleString()}</span>
-                    {loan.amount !== getCurrentPrincipal(loan) && (
+                    <span className={`font-bold ${loan.status === 'Closed' ? 'text-slate-400' : 'text-slate-800'}`}>₹{principal.toLocaleString()}</span>
+                    {loan.amount !== principal && (
                       <span className="text-[8px] text-slate-400 italic">Was ₹{loan.amount.toLocaleString()}</span>
                     )}
                     <div className="text-[10px] text-slate-400">{loan.interestRate}% p.m.</div>
@@ -306,11 +333,11 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
                 <td className="px-6 py-4 text-right">
                   <div className="flex flex-col items-end">
                     <span className={`text-sm font-bold ${loan.status === 'Closed' ? 'text-slate-400' : 'text-green-600'}`}>
-                      +₹{(loan.status === 'Closed' && loan.settledInterest !== undefined ? loan.settledInterest : calculateInterest(loan)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      +₹{interest.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </span>
-                    {loan.transactions?.some(t => t.type === 'Interest Payment') && (
+                    {interestPaid > 0 && (
                       <span className="text-[9px] font-black text-blue-500 uppercase">
-                        Paid: ₹{loan.transactions.filter(t => t.type === 'Interest Payment').reduce((sum, t) => sum + t.amount, 0).toLocaleString()}
+                        Paid: ₹{interestPaid.toLocaleString()}
                       </span>
                     )}
                   </div>
@@ -344,7 +371,7 @@ const Ledger: React.FC<LedgerProps> = ({ loans, onDelete, onEdit, onUpdateStatus
         </table>
       </div>
 
-      {filteredLoans.length === 0 && (
+      {filteredCalculatedLoans.length === 0 && (
         <div className="py-20 text-center text-slate-400 italic">No records found.</div>
       )}
 

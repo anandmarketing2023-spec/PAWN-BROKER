@@ -58,6 +58,31 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
       return acc + partialInterest + settlementInterest;
     }, 0);
 
+    // Interest collected in the current calendar month (No pending/projected interest added)
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth(); // 0-indexed month
+
+    const interestCollectedThisMonth = loans.reduce((acc, loan) => {
+      const partialInterestThisMonth = (loan.transactions || [])
+        .filter(t => t.type === 'Interest Payment')
+        .filter(t => {
+          if (!t.date) return false;
+          const [y, m] = t.date.split('-').map(Number);
+          return y === currentYear && (m - 1) === currentMonth;
+        })
+        .reduce((sum, t) => sum + t.amount, 0);
+      
+      const settlementInterestThisMonth = loan.status === 'Closed' && loan.settledInterest !== undefined && loan.closeDate && (() => {
+        const [y, m] = loan.closeDate.split('-').map(Number);
+        return y === currentYear && (m - 1) === currentMonth;
+      })()
+        ? loan.settledInterest 
+        : 0;
+      
+      return acc + partialInterestThisMonth + settlementInterestThisMonth;
+    }, 0);
+
     const totalInterestImpact = interestCollectedTotal + liveInterestMonthly;
     
     const avgInterestRate = activeLoans.length > 0 
@@ -225,6 +250,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
       totalPrincipal, 
       liveInterestMonthly, 
       interestCollectedTotal, 
+      interestCollectedThisMonth,
       totalInterestImpact,
       activeLoansCount: activeLoans.length, 
       closedLoansCount: closedLoans.length, 
@@ -298,9 +324,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans }) => {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
-        <StatCard label="Live Monthly Int." value={`₹${stats.liveInterestMonthly.toLocaleString()}`} icon={TrendingUp} colorClass="bg-green-100 text-green-700" isSecret />
-        <StatCard label="Int. Collected" value={`₹${stats.interestCollectedTotal.toLocaleString()}`} icon={IndianRupee} colorClass="bg-emerald-100 text-emerald-700" isSecret />
-        <StatCard label="Total Int. Impact" value={`₹${stats.totalInterestImpact.toLocaleString()}`} icon={TrendingUp} colorClass="bg-slate-100 text-slate-700" subValue="Settled + Live Monthly" isSecret />
+        <StatCard label="Int. Received (Month)" value={`₹${stats.interestCollectedThisMonth.toLocaleString()}`} icon={Calendar} colorClass="bg-green-100 text-green-700" subValue="Current Calendar Month" isSecret />
+        <StatCard label="Total Int. Received" value={`₹${stats.interestCollectedTotal.toLocaleString()}`} icon={IndianRupee} colorClass="bg-emerald-100 text-emerald-700" subValue="All-Time Physically Collected" isSecret />
+        <StatCard label="Avg. Interest Rate" value={`${stats.avgInterestRate.toFixed(2)}% p.m.`} icon={TrendingUp} colorClass="bg-slate-100 text-slate-700" subValue="Active Accounts Weighted Average" isSecret />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">

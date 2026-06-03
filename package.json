@@ -10,6 +10,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "firebase": "^12.14.0",
     "lucide-react": "^0.561.0",
     "motion": "^12.36.0",
     "react": "^19.2.3",

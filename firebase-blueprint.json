@@ -1,0 +1,144 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account information and system settings",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase user ID"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when user was created"
+        }
+      },
+      "required": ["userId", "email", "createdAt"]
+    },
+    "Loan": {
+      "title": "Pawn Loan",
+      "description": "Loan record describing pawn collateral and transactions",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Loan unique ID"
+        },
+        "serialNumber": {
+          "type": "number",
+          "description": "Sequential serial number of the loan"
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "Date of loan issue"
+        },
+        "closeDate": {
+          "type": "string",
+          "format": "date",
+          "description": "Date of loan settlement, if closed"
+        },
+        "name": {
+          "type": "string",
+          "description": "Borrower's name"
+        },
+        "guardian": {
+          "type": "string",
+          "description": "Borrower's guardian or parent name"
+        },
+        "address": {
+          "type": "string",
+          "description": "Borrower's physical address"
+        },
+        "contactNumber": {
+          "type": "string",
+          "description": "Borrower's mobile/contact number"
+        },
+        "metalType": {
+          "type": "string",
+          "enum": ["Gold", "Silver", "Both"],
+          "description": "Collateral metal type"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of items pawned"
+        },
+        "weight": {
+          "type": "number",
+          "description": "Total weight in grams"
+        },
+        "netWeight": {
+          "type": "number",
+          "description": "Net weight in grams"
+        },
+        "goldWeight": {
+          "type": "number",
+          "description": "Gold weight"
+        },
+        "goldNetWeight": {
+          "type": "number",
+          "description": "Gold net weight"
+        },
+        "silverWeight": {
+          "type": "number",
+          "description": "Silver weight"
+        },
+        "silverNetWeight": {
+          "type": "number",
+          "description": "Silver net weight"
+        },
+        "remark": {
+          "type": "string",
+          "description": "Special annotations or remarks"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Initial loan principal amount"
+        },
+        "interestRate": {
+          "type": "number",
+          "description": "Monthly interest rate percentage"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Active", "Closed"],
+          "description": "Current status of the pawn loan"
+        },
+        "settledInterest": {
+          "type": "number",
+          "description": "Interest collected at settlement time"
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "URL link to collateral photo"
+        },
+        "transactions": {
+          "type": "array",
+          "description": "List of embedded sub-transactions (repayments)"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of the last update"
+        }
+      },
+      "required": ["id", "serialNumber", "date", "name", "contactNumber", "metalType", "amount", "interestRate", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Root user profiles"
+    },
+    "/users/{userId}/loans/{loanId}": {
+      "schema": "Loan",
+      "description": "List of active and closed pawn loans under this authenticated account"
+    }
+  }
+}
