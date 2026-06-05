@@ -10,7 +10,8 @@ import {
   X,
   Users,
   Coins,
-  AlertTriangle
+  AlertTriangle,
+  Database
 } from 'lucide-react';
 import { LoanEntry, BackupConfig, BackupEntry } from './types';
 import { getAllLoans, saveLoans, getConfig, saveConfig, getAllBackups, saveBackupsToDB } from './src/db';
@@ -50,6 +51,15 @@ const App: React.FC = () => {
   const [settlingLoan, setSettlingLoan] = useState<LoanEntry | null>(null);
   const [transactingLoan, setTransactingLoan] = useState<LoanEntry | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // File import choice state
+  const [importSelectionData, setImportSelectionData] = useState<{
+    loans: LoanEntry[];
+    config?: BackupConfig;
+    backups?: BackupEntry[];
+    appName?: string;
+    fileName: string;
+  } | null>(null);
 
   // Modal State
   const [modalConfig, setModalConfig] = useState<{
@@ -540,6 +550,86 @@ const App: React.FC = () => {
     }
   };
 
+  const handleExecuteImport = async (mode: 'merge' | 'replace') => {
+    if (!importSelectionData) return;
+    const { loans: importedLoans, config: importedConfig, backups: importedBackups, appName: importedAppName } = importSelectionData;
+    
+    setIsLoading(true);
+    const cachedData = importSelectionData;
+    setImportSelectionData(null);
+    try {
+      let finalLoans: LoanEntry[] = [];
+      if (mode === 'merge') {
+        const existingIds = new Set(loans.map(l => l.id));
+        finalLoans = [...loans];
+        let addedCount = 0;
+        importedLoans.forEach(item => {
+          if (!existingIds.has(item.id)) {
+            const isDuplicateVal = loans.some(existing => 
+              existing.name.trim().toLowerCase() === item.name.trim().toLowerCase() && 
+              existing.amount === item.amount &&
+              existing.serialNumber === item.serialNumber
+            );
+            if (!isDuplicateVal) {
+              finalLoans.push(item);
+              addedCount++;
+            }
+          }
+        });
+        
+        if (currentUser?.isCloud) {
+          for (const loan of finalLoans) {
+            if (!existingIds.has(loan.id)) {
+              await setDoc(doc(db, `users/${currentUser.uid}/loans/${loan.id}`), loan);
+            }
+          }
+        }
+      } else {
+        finalLoans = importedLoans;
+        if (currentUser?.isCloud) {
+          for (const l of loans) {
+            await deleteDoc(doc(db, `users/${currentUser.uid}/loans/${l.id}`));
+          }
+          for (const loan of finalLoans) {
+            await setDoc(doc(db, `users/${currentUser.uid}/loans/${loan.id}`), loan);
+          }
+        }
+      }
+
+      setLoans(finalLoans);
+      await saveLoans(finalLoans);
+      
+      if (mode === 'replace') {
+        if (importedConfig) {
+          setBackupConfig(importedConfig);
+          await saveConfig('backup_config', importedConfig);
+        }
+        if (importedBackups) {
+          setBackups(importedBackups);
+          await saveBackupsToDB(importedBackups);
+        }
+        if (importedAppName) {
+          setAppName(importedAppName);
+          await saveConfig('app_name', importedAppName);
+        }
+      }
+
+      showModal(
+        "Import Successful", 
+        mode === 'merge' 
+          ? `Successfully merged and added new records. Your device now hosts ${finalLoans.length} pawn accounts total.`
+          : `Device ledger database was completely reset with imported backup elements. Loaded ${finalLoans.length} customer records successfully.`, 
+        "success"
+      );
+    } catch (err: any) {
+      showModal("Import Failed", `Unable to complete sync or import operation: ${err.message || err}`, "warning");
+      // Restore in case of failure
+      setImportSelectionData(cachedData);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const importData = (file: File) => {
     const reader = new FileReader();
     const isCSV = file.name.toLowerCase().endsWith('.csv');
@@ -569,43 +659,13 @@ const App: React.FC = () => {
         }
         
         if (importedLoans.length > 0) {
-          showModal(
-            "Confirm Import",
-            `This will replace your current ${loans.length} active records with ${importedLoans.length} records imported from the device. Are you sure you want to continue?`,
-            "warning",
-            async () => {
-              if (currentUser?.isCloud) {
-                setIsLoading(true);
-                try {
-                  // Delete existing
-                  for (const l of loans) {
-                    await deleteDoc(doc(db, `users/${currentUser.uid}/loans/${l.id}`));
-                  }
-                  // Write new
-                  for (const loan of importedLoans) {
-                    await setDoc(doc(db, `users/${currentUser.uid}/loans/${loan.id}`), loan);
-                  }
-                  showModal("Import Successful", `Your cloud database has been successfully updated with ${importedLoans.length} records parsed from the spreadsheet.`, "success");
-                } catch (err: any) {
-                  showModal("Failed to import", `Failed to restore to Google Cloud: ${err.message || err}`, "warning");
-                } finally {
-                  setIsLoading(false);
-                }
-              } else {
-                setLoans(importedLoans);
-                if (importedConfig) setBackupConfig(importedConfig);
-                if (importedBackups) setBackups(importedBackups);
-                if (importedAppName) setAppName(importedAppName);
-                
-                await saveLoans(importedLoans);
-                if (importedConfig) await saveConfig('backup_config', importedConfig);
-                if (importedBackups) await saveBackupsToDB(importedBackups);
-                if (importedAppName) await saveConfig('app_name', importedAppName);
-                
-                showModal("Import Successful", `Your local device database has been restored with ${importedLoans.length} records successfully.`, "success");
-              }
-            }
-          );
+          setImportSelectionData({
+            loans: importedLoans,
+            config: importedConfig,
+            backups: importedBackups,
+            appName: importedAppName,
+            fileName: file.name
+          });
         } else {
           showModal("Invalid/Empty File", "The spreadsheet or backup file contains no valid customer entries or cannot be parsed.", "warning");
         }
@@ -1057,6 +1117,90 @@ const App: React.FC = () => {
             onClose={() => setTransactingLoan(null)} 
             onSave={handleSaveTransaction} 
           />
+        )}
+
+        {importSelectionData && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div 
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              onClick={() => setImportSelectionData(null)}
+            />
+            <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden relative z-10 animate-in zoom-in-95 duration-200">
+              <div className="bg-gradient-to-r from-amber-500 to-amber-600 p-6 text-white flex justify-between items-center">
+                <div className="flex items-center space-x-2">
+                  <Database size={24} className="animate-bounce" />
+                  <h2 className="text-xl font-black uppercase tracking-tight">Ledger Import Engine</h2>
+                </div>
+                <button 
+                  onClick={() => setImportSelectionData(null)} 
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6">
+                <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100 flex items-start space-x-3">
+                  <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20} />
+                  <div className="text-xs space-y-1">
+                    <span className="font-extrabold text-amber-950 uppercase block">Ready to Import</span>
+                    <p className="text-amber-800 leading-normal">
+                      We parsed <strong className="font-bold">{importSelectionData.loans.length} customer entries</strong> from your spreadsheet/backup file: <span className="font-mono bg-amber-100/60 px-1.5 py-0.5 rounded text-amber-900">{importSelectionData.fileName}</span>. How would you like to load this into your active sandbox?
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4">
+                  {/* Option 1: Append & Merge */}
+                  <button
+                    onClick={() => handleExecuteImport('merge')}
+                    className="p-4 bg-slate-50 hover:bg-amber-50/55 border border-slate-200 hover:border-amber-400/50 rounded-2xl text-left transition-all cursor-pointer group active:scale-98 shadow-sm"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="bg-amber-500 text-white p-2.5 rounded-xl group-hover:bg-amber-600">
+                          <PlusCircle size={18} />
+                        </div>
+                        <div>
+                          <span className="block font-black text-slate-800 uppercase text-xs tracking-wider">Append & Merge Records (Add)</span>
+                          <span className="block text-[10px] text-slate-500 mt-0.5">Keeps your existing on-device list and safely appends any new rows from the spreadsheet.</span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-black text-green-600 bg-green-50 border border-green-250 px-2 py-0.5 rounded uppercase shrink-0">Safe Add</span>
+                    </div>
+                  </button>
+
+                  {/* Option 2: Overwrite Entirely */}
+                  <button
+                    onClick={() => handleExecuteImport('replace')}
+                    className="p-4 bg-slate-50 hover:bg-rose-50/50 border border-slate-200 hover:border-rose-400/30 rounded-2xl text-left transition-all cursor-pointer group active:scale-98 shadow-sm"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="bg-rose-600 text-white p-2.5 rounded-xl group-hover:bg-rose-700">
+                          <AlertTriangle size={18} />
+                        </div>
+                        <div>
+                          <span className="block font-black text-rose-800 uppercase text-xs tracking-wider">Replace & Overwrite</span>
+                          <span className="block text-[10px] text-slate-500 mt-0.5">Wipe device books completely clean and restore solely from the loaded backup.</span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-black text-rose-600 bg-rose-50 border border-rose-250 px-2 py-0.5 rounded uppercase shrink-0">Wipe & Load</span>
+                    </div>
+                  </button>
+                </div>
+
+                <div className="flex justify-end pt-3">
+                  <button
+                    onClick={() => setImportSelectionData(null)}
+                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs uppercase tracking-wider rounded-xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         <Modal 

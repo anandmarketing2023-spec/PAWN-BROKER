@@ -38,6 +38,11 @@ service cloud.firestore {
       allow get: if true;
     }
 
+    // Direct Device-to-Device cloud pairing synchronization channel
+    match /pairings/{pairingId} {
+      allow read, write: if pairingId is string && pairingId.matches('^[0-9]{6}$');
+    }
+
     match /users/{userId} {
       allow read, write: if isOwner(userId);
       

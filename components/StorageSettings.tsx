@@ -32,6 +32,8 @@ import { LoanEntry, BackupConfig, BackupEntry } from '../types';
 import { encodeLedgerData, decodeLedgerData, safeLocalStorage } from '../src/utils';
 import BackupManager from './BackupManager';
 import Modal from './Modal';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { db } from '../src/firebase';
 
 interface StorageSettingsProps {
   loans: LoanEntry[];
@@ -88,6 +90,131 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
   const [copySuccess, setCopySuccess] = useState(false);
   const [isPasting, setIsPasting] = useState(false);
 
+  // Direct Device-to-Device Transfer States
+  const [transferPayload, setTransferPayload] = useState('');
+  const [copyPayloadSuccess, setCopyPayloadSuccess] = useState(false);
+  const [copyLinkSuccess, setCopyLinkSuccess] = useState(false);
+
+  // 6-digit Sync Channel States
+  const [pairingCode, setPairingCode] = useState('');
+  const [isGeneratingCode, setIsGeneratingCode] = useState(false);
+  const [pairingCountdown, setPairingCountdown] = useState(600);
+  const [pairingInput, setPairingInput] = useState('');
+  const [isSyncingPairing, setIsSyncingPairing] = useState(false);
+
+  const formatCountdown = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const remaining = secs % 60;
+    return `${mins}:${remaining.toString().padStart(2, '0')}`;
+  };
+
+  useEffect(() => {
+    if (!pairingCode) return;
+    const interval = setInterval(() => {
+      setPairingCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setPairingCode('');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [pairingCode]);
+
+  const handleGeneratePairingCode = async () => {
+    setIsGeneratingCode(true);
+    try {
+      const randomPIN = Math.floor(100000 + Math.random() * 900000).toString();
+      const payload = encodeLedgerData(loans);
+      
+      await setDoc(doc(db, 'pairings', randomPIN), {
+        payload,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 10 * 60 * 1000,
+        recordCount: loans.length,
+        appName: appName
+      });
+
+      setPairingCode(randomPIN);
+      setPairingCountdown(600);
+      
+      showModal(
+        "Sync PIN Generated!",
+        `We created a secure cloud pairing channel. Your 6-Digit PIN is: ${randomPIN}. It will remain active for 10 minutes. Enter this PIN on your other device under 'Receive / Sync' to instantly transfer and merge the database.`,
+        "success"
+      );
+    } catch (err: any) {
+      showModal("Cloud Storage Error", `Failed to generate a synchronization channel: ${err.message || err}. Ensure you are online.`, "warning");
+    } finally {
+      setIsGeneratingCode(false);
+    }
+  };
+
+  const handleSyncPairingCode = async (codeToSync: string) => {
+    const sanitizedCode = codeToSync.replace(/\D/g, '').trim();
+    if (sanitizedCode.length !== 6) {
+      showModal("Invalid PIN format", "Please enter a valid 6-digit sync PIN code.", "warning");
+      return;
+    }
+
+    setIsSyncingPairing(true);
+    try {
+      const docRef = doc(db, 'pairings', sanitizedCode);
+      const snap = await getDoc(docRef);
+
+      if (!snap.exists()) {
+        showModal("PIN Expired or Invalid", "This 6-Digit Sync Channel could not be found. It may have expired (10 min limit) or does not exist. Please generate a new code on the sending device and try again.", "warning");
+        return;
+      }
+
+      const data = snap.data();
+      const payload = data?.payload;
+
+      if (!payload) {
+        showModal("Data Integrity Fault", "The pairing channel contains no valid data payloads.", "warning");
+        return;
+      }
+
+      const imported = decodeLedgerData(payload);
+      if (imported && Array.isArray(imported) && imported.length > 0) {
+        showModal(
+          "Wireless Sync Payload Received",
+          `Channel found for "${data.appName || 'Balaji Pawn Book'}" hosting ${data.recordCount || imported.length} customer bookkeeping records.\n\nWould you like to MERGE and append these records safely into this device's ledger?`,
+          "confirm",
+          () => {
+            const existingIds = new Set(loans.map(l => l.id));
+            const merged = [...loans];
+            let addedCount = 0;
+            imported.forEach((item: any) => {
+              if (!existingIds.has(item.id)) {
+                const isDup = loans.some(existing => 
+                  existing.name.trim().toLowerCase() === item.name.trim().toLowerCase() &&
+                  existing.amount === item.amount &&
+                  existing.serialNumber === item.serialNumber
+                );
+                if (!isDup) {
+                  merged.push(item);
+                  addedCount++;
+                }
+              }
+            });
+            onImport(merged);
+            setPairingInput('');
+            showModal("Integration Complete", `Successfully merged. Added ${addedCount} new ledger rows from cloud transfer!`, "success");
+          }
+        );
+      } else {
+        throw new Error("Sync ledger payload has no valid entries.");
+      }
+    } catch (err: any) {
+      showModal("Sync Fault", `Failed to complete pairing transfer: ${err.message || err}`, "warning");
+    } finally {
+      setIsSyncingPairing(false);
+    }
+  };
+
   // Hardware Recovery Vault (on-device local storage copies)
   const [localSnapshots, setLocalSnapshots] = useState<LocalRecoverySnapshot[]>([]);
 
@@ -107,6 +234,81 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
 
   const showModal = (title: string, message: string, type: 'info' | 'warning' | 'success' | 'confirm' = 'info', onConfirm?: () => void) => {
     setModalConfig({ isOpen: true, title, message, type, onConfirm });
+  };
+
+  const handleCopyTransferKey = () => {
+    try {
+      const payload = encodeLedgerData(loans);
+      navigator.clipboard.writeText(payload);
+      setCopyPayloadSuccess(true);
+      setTimeout(() => setCopyPayloadSuccess(false), 2000);
+      showModal(
+        "Transfer Stream Copied", 
+        "Portable text database sync key has been copied to your clipboard. Back on your other phone or tablet, paste this payload string into the 'Receive Transfer Stream' input field inside this Utilities screen to synchronize data!", 
+        "success"
+      );
+    } catch (err: any) {
+      showModal("Packaging Failed", `Error creating portable ledger sync key: ${err.message || err}`, "warning");
+    }
+  };
+
+  const handleCopySyncLink = () => {
+    try {
+      const payload = encodeLedgerData(loans);
+      const url = `${window.location.origin}${window.location.pathname}?transfer=${encodeURIComponent(payload)}`;
+      navigator.clipboard.writeText(url);
+      setCopyLinkSuccess(true);
+      setTimeout(() => setCopyLinkSuccess(false), 2000);
+      showModal(
+        "Direct Sync Link Copied!", 
+        "Quick link has been successfully created and copied to your clipboard. Simply open or share this link with your secondary phone or tablet to instantly sync and merge records in 1-click!", 
+        "success"
+      );
+    } catch (err: any) {
+      showModal("URL Creation Failed", `Unable to generate query string direct beam: ${err.message || err}`, "warning");
+    }
+  };
+
+  const handleProcessTransferKey = (textToProcess: string) => {
+    if (!textToProcess.trim()) {
+      showModal("Pasted Code Empty", "Please paste the backup passcode or synchronization payload string copied from your other device first.", "warning");
+      return;
+    }
+    try {
+      const imported = decodeLedgerData(textToProcess.trim());
+      if (imported && Array.isArray(imported) && imported.length > 0) {
+        showModal(
+          "Transfer Payload Decrypted",
+          `We successfully decoded ${imported.length} customer bookkeeping records. Would you like to MERGE and append these entries safely with your active on-device list without deleting any existing data? (Choose Confirm to Merge, or close this alert to cancel).`, 
+          "confirm",
+          () => {
+            const existingIds = new Set(loans.map(l => l.id));
+            const merged = [...loans];
+            let addedCount = 0;
+            imported.forEach((item: any) => {
+              if (!existingIds.has(item.id)) {
+                const isDup = loans.some(existing => 
+                  existing.name.trim().toLowerCase() === item.name.trim().toLowerCase() &&
+                  existing.amount === item.amount &&
+                  existing.serialNumber === item.serialNumber
+                );
+                if (!isDup) {
+                  merged.push(item);
+                  addedCount++;
+                }
+              }
+            });
+            onImport(merged);
+            setTransferPayload('');
+            showModal("Sync Completed", `Successfully merged. Added ${addedCount} brand new ledger records to this device's local database!`, "success");
+          }
+        );
+      } else {
+        throw new Error("Parsed ledger stream contains zero valid user entries.");
+      }
+    } catch (err: any) {
+      showModal("Sync Signature Fault", `Failed to parse transport string. Ensure you copied the entire sequence from your other device accurately. Details: ${err.message || err}`, "warning");
+    }
   };
 
   // Load redundant hardware copies on mount / tap
@@ -652,50 +854,185 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
               </div>
             </div>
 
-            {/* Storage telemetry status metrics panel */}
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
-              <div>
-                <h3 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center">
-                  <Smartphone size={18} className="mr-1.5 text-slate-500" />
-                  Hardware Space Metrics
-                </h3>
-                <p className="text-slate-400 text-[10px] mt-0.5">Detailed sandbox allocations of this mobile or tablet device.</p>
+            {/* TAB 4: DIRECT DEVICE-TO-DEVICE DIRECT DATA TRANSFER SYNC */}
+            <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-6 flex flex-col justify-between">
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center">
+                    <Smartphone size={18} className="mr-2 text-indigo-600" />
+                    Device-to-Device Wireless Sync
+                  </h3>
+                  <p className="text-slate-400 text-[10px] mt-0.5">Move, replicate, or synchronize your active ledgers with any other phone or tablet instantly using the options below.</p>
+                </div>
+
+                {/* Cloud Sync PIN generator (SENDER) */}
+                <div className="bg-indigo-50/40 border border-indigo-100 rounded-2xl p-4.5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="block text-[9px] font-extrabold uppercase tracking-widest text-indigo-800">1. Generate Wireless Sync PIN (Sender)</span>
+                    <span className="text-[9px] font-extrabold text-indigo-600 bg-indigo-100/50 px-2 py-0.5 rounded uppercase">Fast Cloud Sync</span>
+                  </div>
+
+                  {pairingCode ? (
+                    <div className="text-center space-y-3.5 py-1">
+                      <p className="text-[10px] text-slate-500 leading-normal">
+                        Enter this 6-digit sync PIN on your other device under the <strong className="font-bold">Receive / Sync</strong> panel:
+                      </p>
+                      
+                      <div className="flex justify-center items-center space-x-1 sm:space-x-2 font-black font-mono text-xl sm:text-2xl text-slate-800">
+                        {pairingCode.split('').map((char, idx) => (
+                          <span key={idx} className="w-10 h-12 flex items-center justify-center bg-white border-2 border-indigo-200 rounded-xl shadow-sm text-indigo-900 animate-pulse">
+                            {char}
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center justify-center space-x-1.5 text-[10px]">
+                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+                        <span className="font-bold text-rose-600 uppercase">PIN expires in: {formatCountdown(pairingCountdown)}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        No cables or files required. Generates a secure, temporary 6-digit passcode to let any other target phone or tablet download and merge your data list.
+                      </p>
+                      <button
+                        onClick={handleGeneratePairingCode}
+                        disabled={isGeneratingCode}
+                        className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all flex items-center justify-center space-x-2 cursor-pointer shadow-sm active:scale-98 shadow-indigo-100"
+                      >
+                        {isGeneratingCode ? (
+                          <>
+                            <RefreshCw size={12} className="animate-spin text-white" />
+                            <span>Creating Sync Channel...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={12} className="text-indigo-200" />
+                            <span>⚡ Generate Wireless Sync PIN</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Cloud Sync PIN receiver (RECEIVER) */}
+                <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4.5 space-y-3">
+                  <span className="block text-[9px] font-extrabold uppercase tracking-widest text-slate-500">2. Receive Sync PIN or Code (Receiver)</span>
+                  
+                  <div className="space-y-2.5">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={pairingInput}
+                        onChange={(e) => setPairingInput(e.target.value.replace(/\D/g, ''))}
+                        placeholder="Enter 6-digit Sync PIN (e.g. 148382)"
+                        className="flex-grow bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-center font-bold tracking-widest text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                      />
+                      <button
+                        onClick={() => handleSyncPairingCode(pairingInput)}
+                        disabled={isSyncingPairing || pairingInput.length !== 6}
+                        className="px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center cursor-pointer shadow-sm shrink-0"
+                      >
+                        {isSyncingPairing ? (
+                          <RefreshCw size={12} className="animate-spin text-white animate-spin-slow" />
+                        ) : (
+                          <span>Sync Data</span>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-[9px] text-slate-400 leading-normal text-center">
+                      Enter the generated 6-digit code from the sender device to safely download & merge records.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Collapsible offline sharing features */}
+                <details className="group border border-slate-150 rounded-2xl p-3 bg-slate-50/20">
+                  <summary className="list-none flex items-center justify-between text-[10px] font-bold text-slate-500 hover:text-slate-800 cursor-pointer select-none">
+                    <span className="flex items-center uppercase tracking-tight">
+                      <Link size={12} className="mr-1.5 text-indigo-500" />
+                      Alternative Clipboard & Link Transfer
+                    </span>
+                    <span className="transform transition-transform duration-200 group-open:rotate-180 text-slate-400">▼</span>
+                  </summary>
+
+                  <div className="pt-3 space-y-3 border-t border-dashed border-slate-100 mt-2.5">
+                    {/* Shareable string links */}
+                    <div className="grid grid-cols-2 gap-2 text-center">
+                      <button
+                        onClick={handleCopyTransferKey}
+                        className="p-3 bg-indigo-50/40 hover:bg-indigo-100/50 border border-indigo-100 text-indigo-700 rounded-xl font-bold text-[9px] uppercase tracking-wider transition-all flex flex-col items-center justify-center space-y-1 cursor-pointer"
+                      >
+                        {copyPayloadSuccess ? <Check className="text-green-600 size-3.5" /> : <Copy size={13} className="text-indigo-600" />}
+                        <span>{copyPayloadSuccess ? 'Copied Key!' : 'Copy Sync Key'}</span>
+                      </button>
+
+                      <button
+                        onClick={handleCopySyncLink}
+                        className="p-3 bg-violet-50/40 hover:bg-violet-100/50 border border-violet-100 text-violet-700 rounded-xl font-bold text-[9px] uppercase tracking-wider transition-all flex flex-col items-center justify-center space-y-1 cursor-pointer"
+                      >
+                        {copyLinkSuccess ? <Check className="text-green-600 size-3.5" /> : <Link size={13} className="text-violet-600" />}
+                        <span>{copyLinkSuccess ? 'Link Copied!' : 'Copy Quicklink'}</span>
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <textarea
+                        value={transferPayload}
+                        onChange={(e) => setTransferPayload(e.target.value)}
+                        placeholder="Paste the offline sync raw sequence string here..."
+                        className="w-full bg-white border border-slate-200 rounded-xl p-2 text-[9px] font-mono leading-normal h-12 focus:ring-1 focus:ring-indigo-500 focus:outline-none placeholder-slate-400 text-slate-700 resize-none"
+                      />
+                      <button
+                        onClick={() => {
+                          let parsedVal = transferPayload.trim();
+                          if (parsedVal.includes('?transfer=')) {
+                            try {
+                              const urlObj = new URL(parsedVal);
+                              const tVal = urlObj.searchParams.get('transfer');
+                              if (tVal) parsedVal = tVal;
+                            } catch (e) {}
+                          }
+                          handleProcessTransferKey(parsedVal);
+                        }}
+                        className="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                      >
+                        <Clipboard size={10} className="text-indigo-300" />
+                        <span>Sync offline sequence</span>
+                      </button>
+                    </div>
+                  </div>
+                </details>
               </div>
 
-              <div className="space-y-4 pt-2">
-                <div className="flex justify-between items-center py-2 border-b border-slate-100 text-xs">
-                  <span className="text-slate-500">Active Book Accounts</span>
-                  <span className="font-extrabold text-slate-800">{activeLoansCount} rows</span>
+              {/* Collapsible telemetry hardware details box */}
+              <details className="group border-t border-slate-100 pt-3">
+                <summary className="list-none flex items-center justify-between text-[10px] font-bold text-slate-500 hover:text-slate-800 cursor-pointer select-none">
+                  <span className="flex items-center uppercase tracking-tight">
+                    <Info size={12} className="mr-1 text-slate-400 group-open:text-emerald-500" />
+                    Diagnostics & Hardware Space Metrics
+                  </span>
+                  <span className="transform transition-transform duration-200 group-open:rotate-180 text-slate-400">▼</span>
+                </summary>
+                
+                <div className="space-y-2 pt-2 text-[10px] text-slate-600 border-t border-dashed border-slate-100 mt-2">
+                  <div className="flex justify-between items-center">
+                    <span>Active Book Accounts</span>
+                    <span className="font-extrabold text-slate-800">{activeLoansCount} rows</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>IndexedDB Store Occupancy</span>
+                    <span className="font-extrabold text-slate-800">{formattedSize} KB</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Storage Environment Directory</span>
+                    <span className="font-mono bg-slate-50 px-1 py-0.2 rounded text-slate-700">IndexedDB://BalajiLedgerDB</span>
+                  </div>
                 </div>
-                <div className="flex justify-between items-center py-2 border-b border-slate-100 text-xs">
-                  <span className="text-slate-500">IndexedDB Storage Allocated</span>
-                  <span className="font-extrabold text-slate-800">{formattedSize} KB</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b border-slate-100 text-xs">
-                  <span className="text-slate-500">Trash Bin Allocation</span>
-                  <span className="font-extrabold text-rose-600">{deletedLoans.length} entries</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b border-slate-100 text-xs">
-                  <span className="text-slate-500">Local Sandbox Directory</span>
-                  <span className="font-black text-slate-800 uppercase">LOCAL-STORAGE://balaji</span>
-                </div>
-                <div className="flex justify-between items-start py-2 border-b border-slate-100 text-xs flex-col xl:flex-row xl:items-center gap-1">
-                  <span className="text-slate-500">Database Name (IndexedDB)</span>
-                  <span className="font-bold text-slate-800 font-mono text-[10px] break-all text-right">BalajiLedgerDB</span>
-                </div>
-                <div className="flex justify-between items-start py-2 border-b border-slate-100 text-xs flex-col xl:flex-row xl:items-center gap-1">
-                  <span className="text-slate-500">Device Store Targets</span>
-                  <span className="font-bold text-slate-800 font-mono text-[10px] break-all text-right">loans, config, backups</span>
-                </div>
-                <div className="flex justify-between items-start py-2 border-b border-slate-100 text-xs flex-col xl:flex-row xl:items-center gap-1">
-                  <span className="text-slate-500">Fallback Cache Location</span>
-                  <span className="font-bold text-slate-800 font-mono text-[10px] break-all text-right">LocalStorage://girvi_*</span>
-                </div>
-                <div className="flex justify-between items-start py-2 text-xs flex-col xl:flex-row xl:items-center gap-1">
-                  <span className="text-slate-500">Host Domain Boundary</span>
-                  <span className="font-bold text-slate-800 font-mono text-[10px] break-all text-right select-all">{window.location.hostname || "localhost"}</span>
-                </div>
-              </div>
+              </details>
             </div>
 
           </div>
