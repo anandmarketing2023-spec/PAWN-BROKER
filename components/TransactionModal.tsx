@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Calendar, CheckCircle2, IndianRupee, Plus, Minus, History } from 'lucide-react';
 import { LoanEntry, Transaction } from '../types';
+import { generateUUID } from '../src/utils';
 
 interface TransactionModalProps {
   loan: LoanEntry;
@@ -29,7 +30,7 @@ const TransactionModal: React.FC<TransactionModalProps> = ({ loan, onClose, onSa
     if (amount <= 0) return;
     
     const transaction: Transaction = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       date,
       amount,
       type,

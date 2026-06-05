@@ -110,3 +110,50 @@ export const getCurrentPrincipal = (loan: LoanEntry) => {
   });
   return p;
 };
+
+export const generateUUID = (): string => {
+  if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID();
+  }
+  // Safe RFC4122 version 4 compliant fallback UUID generator
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
+export const encodeLedgerData = (loans: LoanEntry[]): string => {
+  try {
+    const json = JSON.stringify(loans);
+    const utf8Bytes = new TextEncoder().encode(json);
+    let binary = '';
+    const len = utf8Bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(utf8Bytes[i]);
+    }
+    return window.btoa(binary);
+  } catch (e) {
+    console.error("Encoding failed", e);
+    return '';
+  }
+};
+
+export const decodeLedgerData = (base64: string): LoanEntry[] | null => {
+  try {
+    const binary = window.atob(base64);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const json = new TextDecoder().decode(bytes);
+    const data = JSON.parse(json);
+    if (Array.isArray(data)) return data;
+    return null;
+  } catch (e) {
+    console.error("Decoding failed", e);
+    return null;
+  }
+};
+

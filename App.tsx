@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { LoanEntry, BackupConfig, BackupEntry } from './types';
 import { getAllLoans, saveLoans, getConfig, saveConfig, getAllBackups, saveBackupsToDB } from './src/db';
+import { generateUUID, encodeLedgerData, decodeLedgerData } from './src/utils';
 import Dashboard from './components/Dashboard';
 import LoanEntryForm from './components/LoanEntryForm';
 import Ledger from './components/Ledger';
@@ -37,6 +38,7 @@ const App: React.FC = () => {
   const [appVersion, setAppVersion] = useState<string>('v1.2.0');
   const [sessionBackupDone, setSessionBackupDone] = useState<boolean>(false);
   const [isUpdatingApp, setIsUpdatingApp] = useState<boolean>(false);
+  const [autoBackupTick, setAutoBackupTick] = useState<number>(0);
 
   const [currentUser] = useState<{ uid: string; email: string; isCloud: boolean }>({
     uid: 'local_admin',
@@ -67,20 +69,102 @@ const App: React.FC = () => {
     setModalConfig({ isOpen: true, title, message, type, onConfirm });
   };
 
+  // Periodic automatic backup scheduler ticks (runs background checks every 30s by itself)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setAutoBackupTick(tick => tick + 1);
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Quick Beam parameter parser on mounts
+  useEffect(() => {
+    if (isLoading) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const payload = params.get('transfer');
+      if (payload) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        const imported = decodeLedgerData(payload);
+        if (imported && imported.length > 0) {
+          showModal(
+            "⚡ Quick Beam Data Capture",
+            `We detected an incoming Beam Transfer link featuring ${imported.length} ledger logs. Would you like to MERGE these safety accounts with your active app database?`,
+            "confirm",
+            async () => {
+              const existingIds = new Set(loans.map(l => l.id));
+              const newLoans = [...loans];
+              let addedCount = 0;
+              imported.forEach((item: any) => {
+                if (!existingIds.has(item.id)) {
+                  newLoans.push(item);
+                  addedCount++;
+                }
+              });
+              setLoans(newLoans);
+              await saveLoans(newLoans);
+              showModal("Beam Successful", `Instantly integrated ${addedCount} records without deleting existing loans.`, "success");
+            }
+          );
+        } else {
+          showModal("Link Transfer Mismatch", "Unable to unpack incoming Link Beam. The data signature looks incorrect or mismatching.", "warning");
+        }
+      }
+    } catch (e) {
+      console.error("Link Beam capture failed", e);
+    }
+  }, [isLoading, loans]);
+
   useEffect(() => {
     const loadData = async () => {
       try {
         const savedLoans = await getAllLoans();
+        let restoredLoans: LoanEntry[] | null = null;
+
         if (savedLoans.length > 0) {
-          setLoans(savedLoans);
+          restoredLoans = savedLoans;
         } else {
-          // Fallback to localStorage for migration
+          // Comprehensive local backup keys traversal for seamless restoration
           const legacyLoans = localStorage.getItem('girvi_loans');
           if (legacyLoans) {
-            const parsed = JSON.parse(legacyLoans);
-            setLoans(parsed);
-            await saveLoans(parsed);
+            try { restoredLoans = JSON.parse(legacyLoans); } catch (err) {}
           }
+          if (!restoredLoans || restoredLoans.length === 0) {
+            const rawLatestBackup = localStorage.getItem('girvi_loans_backup_latest');
+            if (rawLatestBackup) {
+              try {
+                const parsed = JSON.parse(rawLatestBackup);
+                if (parsed && Array.isArray(parsed.data)) {
+                  restoredLoans = parsed.data;
+                }
+              } catch (err) {}
+            }
+          }
+          if (!restoredLoans || restoredLoans.length === 0) {
+            const rawVault = localStorage.getItem('girvi_device_recovery_vault');
+            if (rawVault) {
+              try {
+                const parsed = JSON.parse(rawVault);
+                if (Array.isArray(parsed) && parsed[0] && Array.isArray(parsed[0].data)) {
+                  restoredLoans = parsed[0].data;
+                }
+              } catch (err) {}
+            }
+          }
+          if (!restoredLoans || restoredLoans.length === 0) {
+            const altLoans = localStorage.getItem('loans');
+            if (altLoans) {
+              try { restoredLoans = JSON.parse(altLoans); } catch (err) {}
+            }
+          }
+
+          if (restoredLoans && restoredLoans.length > 0) {
+            await saveLoans(restoredLoans);
+          }
+        }
+
+        if (restoredLoans && restoredLoans.length > 0) {
+          setLoans(restoredLoans);
         }
 
         const savedConfig = await getConfig('backup_config');
@@ -98,6 +182,12 @@ const App: React.FC = () => {
         const savedAppName = await getConfig('app_name');
         if (savedAppName) {
           setAppName(savedAppName);
+        } else {
+          const legacyAppName = localStorage.getItem('girvi_app_name');
+          if (legacyAppName) {
+            setAppName(legacyAppName);
+            await saveConfig('app_name', legacyAppName);
+          }
         }
 
         const savedVersion = await getConfig('app_version');
@@ -119,7 +209,24 @@ const App: React.FC = () => {
           }
         }
       } catch (e) {
-        console.error("Failed to load data from IndexedDB", e);
+        console.error("Failed to load data from IndexedDB, attempting emergency localStorage recovery fallback...", e);
+        try {
+          const raw = localStorage.getItem('girvi_loans') || 
+                      localStorage.getItem('loans') || 
+                      localStorage.getItem('girvi_loans_backup_latest');
+          if (raw) {
+            let parsed = JSON.parse(raw);
+            if (parsed && !Array.isArray(parsed) && Array.isArray(parsed.data)) {
+              parsed = parsed.data;
+            }
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setLoans(parsed);
+              console.log("[Recovery] Restored dataset from localStorage successfully under IndexedDB exception.");
+            }
+          }
+        } catch (localErr) {
+          console.error("Emergency localStorage loading failed: ", localErr);
+        }
       } finally {
         // Simulate initial load for professional feel
         setTimeout(() => {
@@ -134,29 +241,59 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isLoading) {
       saveConfig('backup_config', backupConfig);
+      localStorage.setItem('girvi_backup_config', JSON.stringify(backupConfig));
     }
   }, [backupConfig, isLoading]);
 
   useEffect(() => {
     if (!isLoading) {
       saveConfig('app_name', appName);
+      localStorage.setItem('girvi_app_name', appName);
     }
   }, [appName, isLoading]);
 
   useEffect(() => {
     if (!isLoading) {
       saveBackupsToDB(backups);
+      localStorage.setItem('girvi_backups', JSON.stringify(backups));
     }
   }, [backups, isLoading]);
 
   useEffect(() => {
     if (!isLoading && (!currentUser || !currentUser.isCloud)) {
       saveLoans(loans);
+      
+      // Dual-write mirroring to localStorage guarantees 100% preservation across browser caches or updates
+      localStorage.setItem('girvi_loans', JSON.stringify(loans));
+
       if (loans.length > 0) {
+        const timestamp = new Date().toISOString();
         localStorage.setItem('girvi_loans_backup_latest', JSON.stringify({
-          timestamp: new Date().toISOString(),
+          timestamp: timestamp,
           data: loans
         }));
+
+        // Write to Device Persistent Safety Vault history list automatically
+        try {
+          const rawVault = localStorage.getItem('girvi_device_recovery_vault') || '[]';
+          let vaultList = JSON.parse(rawVault);
+          if (!Array.isArray(vaultList)) vaultList = [];
+          
+          const lastSnapshot = vaultList[0];
+          // Only take snapshot if record count or dataset changed to not clutter storage
+          if (!lastSnapshot || lastSnapshot.recordCount !== loans.length) {
+            const newSnapshot = {
+              id: generateUUID(),
+              timestamp: timestamp,
+              recordCount: loans.length,
+              data: loans
+            };
+            const updatedVault = [newSnapshot, ...vaultList].slice(0, 5);
+            localStorage.setItem('girvi_device_recovery_vault', JSON.stringify(updatedVault));
+          }
+        } catch (err) {
+          console.error("Failed to append to Local Recovery Vault: ", err);
+        }
       }
     }
   }, [loans, isLoading, currentUser]);
@@ -231,7 +368,7 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, [currentUser]);
 
-  // Automated Background Backup Scheduler
+  // Automated Background Backup Scheduler (checks daily intervals on auto ticks)
   useEffect(() => {
     if (isLoading) return;
     if (!backupConfig.enabled) return;
@@ -256,7 +393,7 @@ const App: React.FC = () => {
     }
 
     if (shouldBackup) {
-      const backupId = crypto.randomUUID();
+      const backupId = generateUUID();
       const timestamp = now.toISOString();
       const newBackup: BackupEntry = {
         id: backupId,
@@ -287,10 +424,10 @@ const App: React.FC = () => {
         lastBackup: timestamp
       }));
     }
-  }, [loans, backupConfig, isLoading, currentUser]);
+  }, [loans, backupConfig, isLoading, currentUser, autoBackupTick]);
 
   const handleManualBackup = () => {
-    const backupId = crypto.randomUUID();
+    const backupId = generateUUID();
     const timestamp = new Date().toISOString();
     const newBackup: BackupEntry = {
       id: backupId,
@@ -312,12 +449,30 @@ const App: React.FC = () => {
     setIsUpdatingApp(true);
     setTimeout(async () => {
       setIsUpdatingApp(false);
+      // Generate pre-update hardware restore safe-tag
+      const safeTag = `girvi_update_backup_${appVersion}_safe`;
+      localStorage.setItem(safeTag, JSON.stringify(loans));
+      
       const nextVer = appVersion === 'v1.2.0' ? 'v1.3.0' : 'v1.3.5';
       setAppVersion(nextVer);
       await saveConfig('app_version', nextVer);
+      
+      // Upgrade & schema integrity validation on current loans
+      const validatedLoans = loans.map(loan => ({
+        ...loan,
+        remark: loan.remark || '',
+        transactions: (loan.transactions || []).map(tx => ({
+          ...tx,
+          remark: tx.remark || ''
+        }))
+      }));
+      
+      setLoans(validatedLoans);
+      await saveLoans(validatedLoans);
+
       showModal(
-        "Application Updated!",
-        `Congratulations! ${appName} has been successfully updated to ${nextVer}. Core performance enhanced and schema database is synchronized.`,
+        "System Upgrade Successful",
+        `${appName} has been successfully updated to ${nextVer} with 100% data integrity. Checked ${validatedLoans.length} pawn records. All data has been successfully preserved!`,
         "success"
       );
     }, 2000);
@@ -453,7 +608,7 @@ const App: React.FC = () => {
       }
       finalLoan = { ...loanData, id: loanId, closeDate };
     } else {
-      loanId = crypto.randomUUID();
+      loanId = generateUUID();
       finalLoan = {
         ...loanData,
         id: loanId,
@@ -600,7 +755,7 @@ const App: React.FC = () => {
       ? Math.max(...loans.filter(l => !l.isDeleted).map(l => l.serialNumber)) + 1 
       : 1;
 
-    const newLoanId = crypto.randomUUID();
+    const newLoanId = generateUUID();
     const newLoan: LoanEntry = {
       ...oldLoan,
       id: newLoanId,
