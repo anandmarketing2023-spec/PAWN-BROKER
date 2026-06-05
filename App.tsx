@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { LoanEntry, BackupConfig, BackupEntry } from './types';
 import { getAllLoans, saveLoans, getConfig, saveConfig, getAllBackups, saveBackupsToDB } from './src/db';
-import { generateUUID, encodeLedgerData, decodeLedgerData } from './src/utils';
+import { generateUUID, encodeLedgerData, decodeLedgerData, safeLocalStorage } from './src/utils';
 import Dashboard from './components/Dashboard';
 import LoanEntryForm from './components/LoanEntryForm';
 import Ledger from './components/Ledger';
@@ -125,12 +125,12 @@ const App: React.FC = () => {
           restoredLoans = savedLoans;
         } else {
           // Comprehensive local backup keys traversal for seamless restoration
-          const legacyLoans = localStorage.getItem('girvi_loans');
+          const legacyLoans = safeLocalStorage.getItem('girvi_loans');
           if (legacyLoans) {
             try { restoredLoans = JSON.parse(legacyLoans); } catch (err) {}
           }
           if (!restoredLoans || restoredLoans.length === 0) {
-            const rawLatestBackup = localStorage.getItem('girvi_loans_backup_latest');
+            const rawLatestBackup = safeLocalStorage.getItem('girvi_loans_backup_latest');
             if (rawLatestBackup) {
               try {
                 const parsed = JSON.parse(rawLatestBackup);
@@ -141,7 +141,7 @@ const App: React.FC = () => {
             }
           }
           if (!restoredLoans || restoredLoans.length === 0) {
-            const rawVault = localStorage.getItem('girvi_device_recovery_vault');
+            const rawVault = safeLocalStorage.getItem('girvi_device_recovery_vault');
             if (rawVault) {
               try {
                 const parsed = JSON.parse(rawVault);
@@ -152,7 +152,7 @@ const App: React.FC = () => {
             }
           }
           if (!restoredLoans || restoredLoans.length === 0) {
-            const altLoans = localStorage.getItem('loans');
+            const altLoans = safeLocalStorage.getItem('loans');
             if (altLoans) {
               try { restoredLoans = JSON.parse(altLoans); } catch (err) {}
             }
@@ -171,7 +171,7 @@ const App: React.FC = () => {
         if (savedConfig) {
           setBackupConfig(savedConfig);
         } else {
-          const legacyConfig = localStorage.getItem('girvi_backup_config');
+          const legacyConfig = safeLocalStorage.getItem('girvi_backup_config');
           if (legacyConfig) {
             const parsed = JSON.parse(legacyConfig);
             setBackupConfig(parsed);
@@ -183,7 +183,7 @@ const App: React.FC = () => {
         if (savedAppName) {
           setAppName(savedAppName);
         } else {
-          const legacyAppName = localStorage.getItem('girvi_app_name');
+          const legacyAppName = safeLocalStorage.getItem('girvi_app_name');
           if (legacyAppName) {
             setAppName(legacyAppName);
             await saveConfig('app_name', legacyAppName);
@@ -201,7 +201,7 @@ const App: React.FC = () => {
         if (savedBackups.length > 0) {
           setBackups(savedBackups);
         } else {
-          const legacyBackups = localStorage.getItem('girvi_backups');
+          const legacyBackups = safeLocalStorage.getItem('girvi_backups');
           if (legacyBackups) {
             const parsed = JSON.parse(legacyBackups);
             setBackups(parsed);
@@ -211,9 +211,9 @@ const App: React.FC = () => {
       } catch (e) {
         console.error("Failed to load data from IndexedDB, attempting emergency localStorage recovery fallback...", e);
         try {
-          const raw = localStorage.getItem('girvi_loans') || 
-                      localStorage.getItem('loans') || 
-                      localStorage.getItem('girvi_loans_backup_latest');
+          const raw = safeLocalStorage.getItem('girvi_loans') || 
+                      safeLocalStorage.getItem('loans') || 
+                      safeLocalStorage.getItem('girvi_loans_backup_latest');
           if (raw) {
             let parsed = JSON.parse(raw);
             if (parsed && !Array.isArray(parsed) && Array.isArray(parsed.data)) {
@@ -241,21 +241,21 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isLoading) {
       saveConfig('backup_config', backupConfig);
-      localStorage.setItem('girvi_backup_config', JSON.stringify(backupConfig));
+      safeLocalStorage.setItem('girvi_backup_config', JSON.stringify(backupConfig));
     }
   }, [backupConfig, isLoading]);
 
   useEffect(() => {
     if (!isLoading) {
       saveConfig('app_name', appName);
-      localStorage.setItem('girvi_app_name', appName);
+      safeLocalStorage.setItem('girvi_app_name', appName);
     }
   }, [appName, isLoading]);
 
   useEffect(() => {
     if (!isLoading) {
       saveBackupsToDB(backups);
-      localStorage.setItem('girvi_backups', JSON.stringify(backups));
+      safeLocalStorage.setItem('girvi_backups', JSON.stringify(backups));
     }
   }, [backups, isLoading]);
 
@@ -264,18 +264,18 @@ const App: React.FC = () => {
       saveLoans(loans);
       
       // Dual-write mirroring to localStorage guarantees 100% preservation across browser caches or updates
-      localStorage.setItem('girvi_loans', JSON.stringify(loans));
+      safeLocalStorage.setItem('girvi_loans', JSON.stringify(loans));
 
       if (loans.length > 0) {
         const timestamp = new Date().toISOString();
-        localStorage.setItem('girvi_loans_backup_latest', JSON.stringify({
+        safeLocalStorage.setItem('girvi_loans_backup_latest', JSON.stringify({
           timestamp: timestamp,
           data: loans
         }));
 
         // Write to Device Persistent Safety Vault history list automatically
         try {
-          const rawVault = localStorage.getItem('girvi_device_recovery_vault') || '[]';
+          const rawVault = safeLocalStorage.getItem('girvi_device_recovery_vault') || '[]';
           let vaultList = JSON.parse(rawVault);
           if (!Array.isArray(vaultList)) vaultList = [];
           
@@ -289,7 +289,7 @@ const App: React.FC = () => {
               data: loans
             };
             const updatedVault = [newSnapshot, ...vaultList].slice(0, 5);
-            localStorage.setItem('girvi_device_recovery_vault', JSON.stringify(updatedVault));
+            safeLocalStorage.setItem('girvi_device_recovery_vault', JSON.stringify(updatedVault));
           }
         } catch (err) {
           console.error("Failed to append to Local Recovery Vault: ", err);
@@ -451,7 +451,7 @@ const App: React.FC = () => {
       setIsUpdatingApp(false);
       // Generate pre-update hardware restore safe-tag
       const safeTag = `girvi_update_backup_${appVersion}_safe`;
-      localStorage.setItem(safeTag, JSON.stringify(loans));
+      safeLocalStorage.setItem(safeTag, JSON.stringify(loans));
       
       const nextVer = appVersion === 'v1.2.0' ? 'v1.3.0' : 'v1.3.5';
       setAppVersion(nextVer);

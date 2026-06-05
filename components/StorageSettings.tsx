@@ -29,7 +29,7 @@ import {
   X
 } from 'lucide-react';
 import { LoanEntry, BackupConfig, BackupEntry } from '../types';
-import { encodeLedgerData, decodeLedgerData } from '../src/utils';
+import { encodeLedgerData, decodeLedgerData, safeLocalStorage } from '../src/utils';
 import BackupManager from './BackupManager';
 import Modal from './Modal';
 
@@ -124,7 +124,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
   useEffect(() => {
     const loadHardwareVault = () => {
       try {
-        const raw = localStorage.getItem('girvi_device_recovery_vault');
+        const raw = safeLocalStorage.getItem('girvi_device_recovery_vault');
         if (raw) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed)) {
@@ -170,7 +170,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
       "Are you sure you want to delete all historical on-device recovery snapshots? This action wipes local fallback copies permanently.",
       "warning",
       () => {
-        localStorage.removeItem('girvi_device_recovery_vault');
+        safeLocalStorage.removeItem('girvi_device_recovery_vault');
         setLocalSnapshots([]);
         showModal("Vault Purged", "Device backup cache has been deleted successfully.", "success");
       }

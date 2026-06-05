@@ -157,3 +157,35 @@ export const decodeLedgerData = (base64: string): LoanEntry[] | null => {
   }
 };
 
+export const safeLocalStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return window.localStorage.getItem(key);
+      }
+    } catch (e) {
+      console.warn(`[Safe Storage] localStorage.getItem was blocked for key "${key}":`, e);
+    }
+    return null;
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(key, value);
+      }
+    } catch (e) {
+      console.warn(`[Safe Storage] localStorage.setItem was blocked for key "${key}":`, e);
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(key);
+      }
+    } catch (e) {
+      console.warn(`[Safe Storage] localStorage.removeItem was blocked for key "${key}":`, e);
+    }
+  }
+};
+
+
