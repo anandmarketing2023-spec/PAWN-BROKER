@@ -84,23 +84,12 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
   isUpdating
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState<'vault' | 'transit' | 'build' | 'trash'>('vault');
+  const [activeTab, setActiveTab] = useState<'vault' | 'build' | 'trash'>('vault');
   const [copySuccess, setCopySuccess] = useState(false);
   const [isPasting, setIsPasting] = useState(false);
 
   // Hardware Recovery Vault (on-device local storage copies)
   const [localSnapshots, setLocalSnapshots] = useState<LocalRecoverySnapshot[]>([]);
-
-  // Wireless Instant Beam / QR generator states
-  const [beamLink, setBeamLink] = useState('');
-  const [copyLinkSuccess, setCopyLinkSuccess] = useState(false);
-
-  // Bluetooth Sync Simulator States
-  const [bluetoothActive, setBluetoothActive] = useState(false);
-  const [isSearchingBluetooth, setIsSearchingBluetooth] = useState(false);
-  const [bluetoothDevices, setBluetoothDevices] = useState<Array<{ name: string; signal: string; status: 'available' | 'connected' | 'syncing' | 'synced' }>>([]);
-  const [syncProgress, setSyncProgress] = useState(0);
-  const [selectedDeviceName, setSelectedDeviceName] = useState<string | null>(null);
 
   // Modal State
   const [modalConfig, setModalConfig] = useState<{
@@ -138,16 +127,13 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
     loadHardwareVault();
   }, [loans, activeTab]);
 
-  // Generate Beam link dynamically when tab is loaded or record amount changes
-  useEffect(() => {
-    if (loans.length > 0) {
-      const base64 = encodeLedgerData(loans);
-      const url = `${window.location.origin}${window.location.pathname}?transfer=${base64}`;
-      setBeamLink(url);
-    } else {
-      setBeamLink('');
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      onFileImport(file);
+      e.target.value = '';
     }
-  }, [loans, activeTab]);
+  };
 
   const handleRestoreFromLocalVault = (snapshotId: string) => {
     const match = localSnapshots.find(s => s.id === snapshotId);
@@ -232,17 +218,6 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
     document.body.removeChild(link);
   };
 
-  const handleCopyLink = async () => {
-    if (!beamLink) return;
-    try {
-      await navigator.clipboard.writeText(beamLink);
-      setCopyLinkSuccess(true);
-      setTimeout(() => setCopyLinkSuccess(false), 2000);
-    } catch (e) {
-      showModal("Clipboard Error", "Could not write pairing link to browser clipboard. Please copy manually.", "warning");
-    }
-  };
-
   const handleCopyToClipboard = async () => {
     try {
       const dataStr = JSON.stringify(loans, null, 2);
@@ -289,54 +264,6 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
     }
   };
 
-  // Bluetooth pairing simulation routine
-  const startBluetoothScan = () => {
-    if (loans.length === 0) {
-      showModal("Zero Records Warning", "Please insert at least 1 record in your active ledger before creating a Wireless Beam sync.", "warning");
-      return;
-    }
-    setBluetoothActive(true);
-    setIsSearchingBluetooth(true);
-    setBluetoothDevices([]);
-    setSyncProgress(0);
-    setSelectedDeviceName(null);
-
-    // Simulate finding nearby Android devices inside a short frame
-    setTimeout(() => {
-      setBluetoothDevices([
-        { name: "📱 Balaji-Store-Redmi (Android Terminal)", signal: "强 (Very Strong)", status: 'available' },
-        { name: "📱 Master-Tablet-A8 (Girvi Counter)", signal: "中 (Good Connection)", status: 'available' },
-        { name: "💻 Lenovo-Pawn-Office (Desktop Host)", signal: "弱 (Low Strength)", status: 'available' }
-      ]);
-      setIsSearchingBluetooth(false);
-    }, 2500);
-  };
-
-  const startSimulatedSync = (deviceName: string) => {
-    setSelectedDeviceName(deviceName);
-    setBluetoothDevices(prev => 
-      prev.map(d => d.name === deviceName ? { ...d, status: 'syncing' } : d)
-    );
-    
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 10;
-      setSyncProgress(progress);
-      
-      if (progress >= 100) {
-        clearInterval(interval);
-        setBluetoothDevices(prev => 
-          prev.map(d => d.name === deviceName ? { ...d, status: 'synced' } : d)
-        );
-        showModal(
-          "SuperBeam Synergy Met",
-          `Successfully connected to "${deviceName}" and synced active ledger records. Sent ${loans.length} rows wirelessly over simulated Bluetooth (v5.3 Core, 4.2 MB/s). 100% database match achieved!`,
-          "success"
-        );
-      }
-    }, 300);
-  };
-
   const deletedLoans = loans.filter(l => l.isDeleted);
   const activeLoansCount = loans.filter(l => !l.isDeleted).length;
   const storageSize = new Blob([JSON.stringify(loans)]).size;
@@ -381,7 +308,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
           </div>
           <div>
             <h1 className="text-2xl font-black text-slate-800 tracking-tight uppercase">Storage Command</h1>
-            <p className="text-[10px] uppercase tracking-widest font-bold text-slate-400 mt-0.5">Auto-backups, Direct Sync Tools & Hard Recovery Control</p>
+            <p className="text-[10px] uppercase tracking-widest font-bold text-slate-400 mt-0.5">Auto-backups, File Controls & Hard Recovery Control</p>
           </div>
         </div>
 
@@ -423,17 +350,6 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
         >
           <HardDrive size={15} />
           <span>Device Vault</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('transit')}
-          className={`flex-1 flex items-center justify-center space-x-1.5 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-            activeTab === 'transit' 
-              ? 'bg-white text-blue-600 shadow-sm' 
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Wifi size={15} />
-          <span>SuperBeam Transfer</span>
         </button>
         <button
           onClick={() => setActiveTab('build')}
@@ -558,172 +474,6 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
         </div>
       )}
 
-      {/* TAB 2: FAST SYNC & SUPERBEAM TRANSFER */}
-      {activeTab === 'transit' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Section A: Instant url link Beam QR generator */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-6">
-            <div>
-              <span className="text-[8px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Fast Sync Link</span>
-              <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight mt-1.5 flex items-center">
-                <Link size={18} className="text-blue-500 mr-2" />
-                Air-Transfer via Quick Beam Link
-              </h3>
-              <p className="text-slate-400 text-xs mt-0.5">Encode full system database into a direct URL or scan code to synchronize other tablets instantly!</p>
-            </div>
-
-            {loans.length === 0 ? (
-              <div className="p-8 text-center bg-slate-50 border border-dashed rounded-2xl">
-                <AlertTriangle size={24} className="text-slate-400 mx-auto mb-2" />
-                <p className="text-slate-400 text-xs italic">Please write ledger records before producing an instant Air-Sync Beam.</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex bg-slate-50 border border-slate-200 rounded-xl p-3 items-center justify-between">
-                  <div className="truncate pr-3">
-                    <span className="text-[9px] font-bold text-slate-400 block uppercase">Generated Live Carrier String</span>
-                    <span className="text-xs text-slate-600 select-all font-mono">{beamLink.substring(0, 50)}...</span>
-                  </div>
-                  <button
-                    onClick={handleCopyLink}
-                    className={`shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center space-x-1 cursor-pointer ${
-                      copyLinkSuccess
-                        ? 'bg-green-100 text-green-700 border border-green-200'
-                        : 'bg-blue-600 hover:bg-blue-700 text-white shadow'
-                    }`}
-                  >
-                    {copyLinkSuccess ? <Check size={12} /> : <Copy size={12} />}
-                    <span>{copyLinkSuccess ? 'Copied' : 'Copy Beam URL'}</span>
-                  </button>
-                </div>
-
-                {/* Styled SVG QR Code simulator */}
-                <div className="flex flex-col items-center justify-center border border-slate-100 rounded-3xl p-6 bg-slate-50/50 space-y-3">
-                  <div className="bg-white border-4 border-slate-900 rounded-2xl p-4 shadow-md flex items-center justify-center">
-                    <div className="w-40 h-40 bg-slate-900 flex flex-col items-center justify-center relative p-1.5 rounded">
-                      {/* Generates decorative stylized pattern to represent a real qr code */}
-                      <div className="grid grid-cols-4 gap-1 w-full h-full opacity-90">
-                        <div className="bg-white rounded"></div>
-                        <div className="bg-slate-900"></div>
-                        <div className="bg-white rounded"></div>
-                        <div className="bg-white rounded"></div>
-                        <div className="bg-slate-900"></div>
-                        <div className="bg-white rounded"></div>
-                        <div className="bg-slate-900"></div>
-                        <div className="bg-slate-900"></div>
-                        <div className="bg-white rounded"></div>
-                        <div className="bg-neutral-900"></div>
-                        <div className="bg-white rounded"></div>
-                        <div className="bg-white rounded"></div>
-                        <div className="bg-white rounded"></div>
-                        <div className="bg-white rounded"></div>
-                        <div className="bg-slate-900"></div>
-                        <div className="bg-white rounded"></div>
-                      </div>
-                      <div className="absolute inset-0 m-auto w-12 h-12 bg-white rounded-xl border border-slate-300 flex items-center justify-center shadow">
-                        <QrCode size={20} className="text-blue-600 animate-pulse" />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-center space-y-0.5">
-                    <span className="text-xs font-black text-slate-800 uppercase tracking-tight block">Insta Beam QR Code Ready</span>
-                    <span className="text-[10px] text-slate-400 block max-w-xs leading-normal">Have the receiving tablet scan this code with their default mobile camera to load, view, and duplicate current ledger!</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Section B: Android Bluetooth / NFC direct sync simulator */}
-          <div className="bg-slate-900 text-white rounded-3xl p-6 shadow-md border border-slate-800 space-y-6 flex flex-col justify-between">
-            <div>
-              <span className="text-[8px] font-black uppercase tracking-widest text-amber-400 border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 rounded">Fast Wireless Beam</span>
-              <h3 className="text-lg font-black text-white uppercase tracking-tight mt-1.5 flex items-center">
-                <Bluetooth size={18} className="text-amber-400 mr-2 animate-bounce" />
-                AirDrop & Bluetooth Beam Terminal
-              </h3>
-              <p className="text-slate-400 text-xs mt-0.5">P2P Bluetooth simulation sync for close surroundings (perfect for offline Android devices and tablets).</p>
-            </div>
-
-            <div className="space-y-4 my-auto">
-              {!bluetoothActive ? (
-                <div className="text-center py-10 bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-800">
-                  <Bluetooth size={32} className="text-slate-600 mx-auto mb-2" />
-                  <p className="text-xs text-slate-400 italic">Bluetooth pairing network dormant.</p>
-                  <button
-                    onClick={startBluetoothScan}
-                    className="mt-4 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider shadow"
-                  >
-                    Scan Android Channels
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {isSearchingBluetooth ? (
-                    <div className="text-center py-10 space-y-3">
-                      <RefreshCw size={28} className="animate-spin text-amber-500 mx-auto" />
-                      <p className="text-xs text-slate-300 font-bold uppercase tracking-wider animate-pulse">Broadcasting Bluetooth Ping (Android)...</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Found Devices Nearby:</span>
-                      {bluetoothDevices.map((device) => (
-                        <div key={device.name} className="p-3 bg-slate-800 rounded-xl flex items-center justify-between border border-slate-700/60">
-                          <div>
-                            <span className="text-xs font-bold text-slate-100 block">{device.name}</span>
-                            <span className="text-[9px] text-slate-400 block">Signal: {device.signal}</span>
-                          </div>
-                          
-                          {device.status === 'available' && (
-                            <button
-                              onClick={() => startSimulatedSync(device.name)}
-                              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 font-black text-[10px] uppercase tracking-wider rounded-lg transition-all cursor-pointer shadow"
-                            >
-                              Sync
-                            </button>
-                          )}
-
-                          {device.status === 'syncing' && (
-                            <div className="flex items-center space-x-1 text-amber-400 shrink-0">
-                              <RefreshCw size={11} className="animate-spin" />
-                              <span className="text-[9px] font-black uppercase tracking-wider">Syncing {syncProgress}%</span>
-                            </div>
-                          )}
-
-                          {device.status === 'synced' && (
-                            <span className="text-[10px] font-black text-green-400 uppercase tracking-wider bg-green-500/10 px-2 py-0.5 rounded border border-green-500/30 flex items-center">
-                              ✓ Connected
-                            </span>
-                          )}
-                        </div>
-                      ))}
-
-                      {syncProgress > 0 && syncProgress < 100 && (
-                        <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                          <div 
-                            className="bg-amber-500 h-full transition-all duration-300"
-                            style={{ width: `${syncProgress}%` }}
-                          ></div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {bluetoothActive && (
-              <button
-                onClick={startBluetoothScan}
-                className="text-center font-bold text-[9px] text-slate-400 hover:text-white uppercase tracking-widest cursor-pointer w-full mt-4"
-              >
-                Refresh Scanner Network
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* TAB 3: APP UPGRADE CENTRE */}
       {activeTab === 'build' && (
         <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm max-w-3xl mx-auto space-y-6">
@@ -815,17 +565,27 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             
-            {/* CSV Excel Card */}
+            {/* Excel & File Backup Controls */}
             <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
               <div>
                 <h3 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center">
                   <FileText size={18} className="mr-2 text-slate-500" />
-                  Excel & Text Exports
+                  File Controls & Backups
                 </h3>
-                <p className="text-slate-400 text-[10px] mt-0.5">Export ledgers to tabular computer files or text feeds for raw sharing.</p>
+                <p className="text-slate-400 text-[10px] mt-0.5">Export ledgers to files or load backups to synchronize across other devices safely if lost.</p>
               </div>
 
+              {/* Hidden File Input for database or spreadsheet restoration */}
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileChange} 
+                accept=".json,.csv" 
+                className="hidden" 
+              />
+
               <div className="grid grid-cols-1 gap-2.5">
+                {/* 1. Export Excel CSV */}
                 <button
                   onClick={handleExportCSV}
                   className="p-4 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 text-emerald-800 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all text-left flex items-center space-x-3 cursor-pointer"
@@ -833,10 +593,35 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
                   <FileText size={20} className="text-emerald-600" />
                   <div>
                     <span className="block text-[11px] font-black">Export Excel CSV file</span>
-                    <span className="block text-[9px] font-normal text-emerald-700/80 normal-case mt-0.5">Compatible with Microsoft Excel, Google Sheets.</span>
+                    <span className="block text-[9px] font-normal text-emerald-700/80 normal-case mt-0.5">Compatible with Microsoft Excel, Google Sheets, standard tables.</span>
                   </div>
                 </button>
 
+                {/* 2. Export JSON backup database */}
+                <button
+                  onClick={onExport}
+                  className="p-4 bg-blue-50 hover:bg-blue-100 border border-blue-100 text-blue-800 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all text-left flex items-center space-x-3 cursor-pointer"
+                >
+                  <Download size={20} className="text-blue-600" />
+                  <div>
+                    <span className="block text-[11px] font-black">Export Ledger Backup (.JSON)</span>
+                    <span className="block text-[9px] font-normal text-blue-700/80 normal-case mt-0.5">Download entire database to save, keep safe, or move to other devices.</span>
+                  </div>
+                </button>
+
+                {/* 3. Import JSON backup database */}
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-4 bg-amber-50 hover:bg-amber-100 border border-amber-100 text-amber-800 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all text-left flex items-center space-x-3 cursor-pointer"
+                >
+                  <Upload size={20} className="text-amber-600" />
+                  <div>
+                    <span className="block text-[11px] font-black">Import Backup File (.JSON)</span>
+                    <span className="block text-[9px] font-normal text-amber-700/80 normal-case mt-0.5">Select a JSON backup file to instantly load and retrieve your records.</span>
+                  </div>
+                </button>
+
+                {/* 4. Copy All Data Payload */}
                 <button
                   onClick={handleCopyToClipboard}
                   className={`p-4 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all text-left flex items-center space-x-3 cursor-pointer border ${
@@ -852,6 +637,7 @@ const StorageSettings: React.FC<StorageSettingsProps> = ({
                   </div>
                 </button>
 
+                {/* 5. Quick Inject from Clipboard */}
                 <button
                   onClick={handlePasteImport}
                   disabled={isPasting}

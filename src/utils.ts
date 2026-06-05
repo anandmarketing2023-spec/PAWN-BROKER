@@ -188,4 +188,112 @@ export const safeLocalStorage = {
   }
 };
 
+export const parseCSVToLedger = (csvString: string): LoanEntry[] => {
+  const result: LoanEntry[] = [];
+  
+  const parseCSVLine = (line: string): string[] => {
+    const fields: string[] = [];
+    let currentField = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          currentField += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        fields.push(currentField.trim());
+        currentField = '';
+      } else {
+        currentField += char;
+      }
+    }
+    fields.push(currentField.trim());
+    return fields;
+  };
+
+  const lines = csvString.split(/\r?\n/);
+  if (lines.length < 2) return [];
+
+  const headers = parseCSVLine(lines[0]);
+  const headerMap: { [key: string]: number } = {};
+  headers.forEach((h, index) => {
+    headerMap[h.toLowerCase().replace(/[\s_]+/g, '')] = index;
+  });
+
+  const hasRequiredHeaders = ('name' in headerMap && 'serial' in headerMap) || 
+                             ('guardian' in headerMap && 'principalamount' in headerMap) ||
+                             'name' in headerMap ||
+                             'guardian' in headerMap;
+  
+  if (!hasRequiredHeaders) {
+    throw new Error("Columns could not be parsed. Ensure the file contains headers matching Serial, Name, Guardian, Address, or Principal Amount.");
+  }
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    const parts = parseCSVLine(line);
+    const getVal = (key: string): string => {
+      const idx = headerMap[key];
+      return idx !== undefined && idx < parts.length ? parts[idx] : '';
+    };
+
+    const serialNum = parseInt(getVal('serial'), 10) || (1001 + result.length);
+    const dateStr = getVal('date') || new Date().toISOString().split('T')[0];
+    const name = getVal('name') || 'Unnamed Customer';
+    const guardian = getVal('guardian') || '';
+    const address = getVal('address') || '';
+    const contact = getVal('contact') || '';
+    
+    let metal: 'Gold' | 'Silver' | 'Both' = 'Gold';
+    const rawMetal = getVal('metal').toLowerCase();
+    if (rawMetal.includes('silver')) {
+      metal = 'Silver';
+    } else if (rawMetal.includes('both')) {
+      metal = 'Both';
+    }
+    
+    const weightVal = parseFloat(getVal('weight')) || 0;
+    const netWeightVal = parseFloat(getVal('netweight')) || 0;
+    const amountVal = parseFloat(getVal('principalamount')) || parseFloat(getVal('amount')) || 0;
+    const interestVal = parseFloat(getVal('interestrate')) || 2.0;
+    
+    let statusVal: 'Active' | 'Closed' = 'Active';
+    const rawStatus = getVal('status').toLowerCase();
+    if (rawStatus === 'closed' || rawStatus === 'settled') {
+      statusVal = 'Closed';
+    }
+
+    const entry: LoanEntry = {
+      id: generateUUID(),
+      serialNumber: serialNum,
+      date: dateStr,
+      name: name,
+      guardian: guardian,
+      address: address,
+      contactNumber: contact,
+      metalType: metal,
+      description: `Imported via CSV/Excel (${metal === 'Gold' ? 'Au' : 'Ag'}: ${weightVal}g)`,
+      weight: weightVal,
+      netWeight: netWeightVal,
+      amount: amountVal,
+      interestRate: interestVal,
+      status: statusVal,
+      remark: 'Spreadsheet import fallback',
+      transactions: [],
+      isDeleted: false
+    };
+
+    result.push(entry);
+  }
+
+  return result;
+};
+
 

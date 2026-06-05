@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { LoanEntry, BackupConfig, BackupEntry } from './types';
 import { getAllLoans, saveLoans, getConfig, saveConfig, getAllBackups, saveBackupsToDB } from './src/db';
-import { generateUUID, encodeLedgerData, decodeLedgerData, safeLocalStorage } from './src/utils';
+import { generateUUID, encodeLedgerData, decodeLedgerData, safeLocalStorage, parseCSVToLedger } from './src/utils';
 import Dashboard from './components/Dashboard';
 import LoanEntryForm from './components/LoanEntryForm';
 import Ledger from './components/Ledger';
@@ -542,15 +542,36 @@ const App: React.FC = () => {
 
   const importData = (file: File) => {
     const reader = new FileReader();
+    const isCSV = file.name.toLowerCase().endsWith('.csv');
+
     reader.onload = async (e) => {
       try {
         const content = e.target?.result as string;
-        const data = JSON.parse(content);
+        let importedLoans: LoanEntry[] = [];
+        let importedConfig: BackupConfig | undefined;
+        let importedBackups: BackupEntry[] | undefined;
+        let importedAppName: string | undefined;
+
+        if (isCSV) {
+          importedLoans = parseCSVToLedger(content);
+        } else {
+          const data = JSON.parse(content);
+          if (Array.isArray(data)) {
+            importedLoans = data;
+          } else if (data && data.loans && Array.isArray(data.loans)) {
+            importedLoans = data.loans;
+            importedConfig = data.backupConfig;
+            importedBackups = data.backups;
+            importedAppName = data.appName;
+          } else {
+            throw new Error("Invalid format. Ensure backup is a valid ledger snapshot.");
+          }
+        }
         
-        if (data.loans && Array.isArray(data.loans)) {
+        if (importedLoans.length > 0) {
           showModal(
             "Confirm Import",
-            `This will replace your current ${loans.length} records with ${data.loans.length} records. Continue?`,
+            `This will replace your current ${loans.length} active records with ${importedLoans.length} records imported from the device. Are you sure you want to continue?`,
             "warning",
             async () => {
               if (currentUser?.isCloud) {
@@ -561,35 +582,35 @@ const App: React.FC = () => {
                     await deleteDoc(doc(db, `users/${currentUser.uid}/loans/${l.id}`));
                   }
                   // Write new
-                  for (const loan of data.loans) {
+                  for (const loan of importedLoans) {
                     await setDoc(doc(db, `users/${currentUser.uid}/loans/${loan.id}`), loan);
                   }
-                  showModal("Import Successful", "Your cloud database has been successfully updated with records from the backup file.", "success");
+                  showModal("Import Successful", `Your cloud database has been successfully updated with ${importedLoans.length} records parsed from the spreadsheet.`, "success");
                 } catch (err: any) {
                   showModal("Failed to import", `Failed to restore to Google Cloud: ${err.message || err}`, "warning");
                 } finally {
                   setIsLoading(false);
                 }
               } else {
-                setLoans(data.loans);
-                if (data.backupConfig) setBackupConfig(data.backupConfig);
-                if (data.backups) setBackups(data.backups);
-                if (data.appName) setAppName(data.appName);
+                setLoans(importedLoans);
+                if (importedConfig) setBackupConfig(importedConfig);
+                if (importedBackups) setBackups(importedBackups);
+                if (importedAppName) setAppName(importedAppName);
                 
-                await saveLoans(data.loans);
-                if (data.backupConfig) await saveConfig('backup_config', data.backupConfig);
-                if (data.backups) await saveBackupsToDB(data.backups);
-                if (data.appName) await saveConfig('app_name', data.appName);
+                await saveLoans(importedLoans);
+                if (importedConfig) await saveConfig('backup_config', importedConfig);
+                if (importedBackups) await saveBackupsToDB(importedBackups);
+                if (importedAppName) await saveConfig('app_name', importedAppName);
                 
-                showModal("Import Successful", "Your data has been restored from the backup file.", "success");
+                showModal("Import Successful", `Your local device database has been restored with ${importedLoans.length} records successfully.`, "success");
               }
             }
           );
         } else {
-          showModal("Invalid File", "The selected file is not a valid Balaji Ledger backup.", "warning");
+          showModal("Invalid/Empty File", "The spreadsheet or backup file contains no valid customer entries or cannot be parsed.", "warning");
         }
-      } catch (err) {
-        showModal("Error", "Failed to read the backup file. It might be corrupted.", "warning");
+      } catch (err: any) {
+        showModal("Import Failed", `Unable to read or parse file structure. Details: ${err.message || err}`, "warning");
       }
     };
     reader.readAsText(file);
