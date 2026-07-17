@@ -643,9 +643,11 @@ const App: React.FC = () => {
         let importedAppName: string | undefined;
 
         if (isCSV) {
-          importedLoans = parseCSVToLedger(content);
+          const cleanCSVContent = content.replace(/^\ufeff/, '');
+          importedLoans = parseCSVToLedger(cleanCSVContent);
         } else {
-          const data = JSON.parse(content);
+          const cleanJSONContent = content.trim().replace(/^\ufeff/, '');
+          const data = JSON.parse(cleanJSONContent);
           if (Array.isArray(data)) {
             importedLoans = data;
           } else if (data && data.loans && Array.isArray(data.loans)) {

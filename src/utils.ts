@@ -126,13 +126,9 @@ export const generateUUID = (): string => {
 export const encodeLedgerData = (loans: LoanEntry[]): string => {
   try {
     const json = JSON.stringify(loans);
-    const utf8Bytes = new TextEncoder().encode(json);
-    let binary = '';
-    const len = utf8Bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(utf8Bytes[i]);
-    }
-    return window.btoa(binary);
+    const bytes = new TextEncoder().encode(json);
+    const binString = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
+    return window.btoa(binString);
   } catch (e) {
     console.error("Encoding failed", e);
     return '';
@@ -141,12 +137,9 @@ export const encodeLedgerData = (loans: LoanEntry[]): string => {
 
 export const decodeLedgerData = (base64: string): LoanEntry[] | null => {
   try {
-    const binary = window.atob(base64);
-    const len = binary.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
+    const cleanBase64 = base64.trim().replace(/\s/g, '');
+    const binString = window.atob(cleanBase64);
+    const bytes = Uint8Array.from(binString, (char) => char.charCodeAt(0));
     const json = new TextDecoder().decode(bytes);
     const data = JSON.parse(json);
     if (Array.isArray(data)) return data;
@@ -191,6 +184,13 @@ export const safeLocalStorage = {
 export const parseCSVToLedger = (csvString: string): LoanEntry[] => {
   const result: LoanEntry[] = [];
   
+  // Strip potential UTF-8 Byte Order Mark (BOM)
+  const cleanCsvString = csvString.replace(/^\ufeff/, '').trim();
+  
+  // Detect delimiter (comma or semicolon)
+  const firstLine = cleanCsvString.split(/\r?\n/)[0] || '';
+  const delimiter = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
+  
   const parseCSVLine = (line: string): string[] => {
     const fields: string[] = [];
     let currentField = '';
@@ -205,7 +205,7 @@ export const parseCSVToLedger = (csvString: string): LoanEntry[] => {
         } else {
           inQuotes = !inQuotes;
         }
-      } else if (char === ',' && !inQuotes) {
+      } else if (char === delimiter && !inQuotes) {
         fields.push(currentField.trim());
         currentField = '';
       } else {
@@ -216,7 +216,7 @@ export const parseCSVToLedger = (csvString: string): LoanEntry[] => {
     return fields;
   };
 
-  const lines = csvString.split(/\r?\n/);
+  const lines = cleanCsvString.split(/\r?\n/);
   if (lines.length < 2) return [];
 
   const headers = parseCSVLine(lines[0]);
@@ -241,7 +241,11 @@ export const parseCSVToLedger = (csvString: string): LoanEntry[] => {
     const parts = parseCSVLine(line);
     const getVal = (key: string): string => {
       const idx = headerMap[key];
-      return idx !== undefined && idx < parts.length ? parts[idx] : '';
+      let val = idx !== undefined && idx < parts.length ? parts[idx] : '';
+      if (val.startsWith('"') && val.endsWith('"')) {
+        val = val.substring(1, val.length - 1);
+      }
+      return val.replace(/""/g, '"').trim();
     };
 
     const serialNum = parseInt(getVal('serial'), 10) || (1001 + result.length);
